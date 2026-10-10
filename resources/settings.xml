@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<settings>
+  <category label="Sources">
+    <setting id="source_mode" type="select" label="Source mode" values="Free|Debrid|Combined" default="Combined" />
+    <setting id="provider_archive" type="bool" label="Internet Archive (free direct video)" default="true" />
+    <setting id="provider_torrentio" type="bool" label="Torrentio (requires AllDebrid)" default="true" />
+  </category>
+  <category label="Additional stream providers">
+    <setting id="provider_stream_1_enabled" type="bool" label="Enable stream provider 1" default="true" />
+    <setting id="provider_stream_1_url" type="text" option="hidden" label="Provider 1 base / manifest URL" default="" />
+    <setting id="provider_stream_2_enabled" type="bool" label="Enable stream provider 2" default="true" />
+    <setting id="provider_stream_2_url" type="text" option="hidden" label="Provider 2 base / manifest URL" default="" />
+    <setting id="provider_stream_3_enabled" type="bool" label="Enable stream provider 3" default="true" />
+    <setting id="provider_stream_3_url" type="text" option="hidden" label="Provider 3 base / manifest URL" default="" />
+  </category>
+  <category label="AllDebrid">
+    <setting id="alldebrid_enabled" type="bool" label="Enable AllDebrid (prioritised in Combined)" default="true" />
+    <setting id="alldebrid_api_key" type="text" option="hidden" label="API key (or authorise from Link menu / Flix Tools)" default="" />
+    <setting id="flix_account_imported" type="bool" visible="false" default="false" />
+    <setting id="last_search_status" type="text" visible="false" default="" />
+  </category>
+</settings>
