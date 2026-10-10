@@ -56,6 +56,8 @@ def item(value):
     extra=value.get('extra')
     aliases=extra.get('aliases',[]) if isinstance(extra,dict) else []
     result['extra']={'aliases':[text(x) for x in aliases[:20] if text(x)] if isinstance(aliases,list) else []}
+    duration=value.get("duration_seconds")
+    if type(duration) in (int,float) and math.isfinite(duration) and 0<duration<=86400:result["duration_seconds"]=duration
     return result
 
 def source(raw, provider_id, provider_name, media):
@@ -73,6 +75,7 @@ def source(raw, provider_id, provider_name, media):
             'quality':quality(raw.get('quality') or raw.get('label')), 'host':urlsplit(url).hostname or 'Torrent',
             'size':size, 'debrid':access=='debrid',
             'extra':{'item':media, 'link_provider':provider_id, 'access':access,
+                     'size_scope':raw.get('size_scope') if raw.get('size_scope') in ('file','package') else 'unknown',
                      'hash':digest or '', 'availability':'unchecked' if access=='debrid' else 'direct'}}
 
 def merge(groups):

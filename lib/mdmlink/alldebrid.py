@@ -1,5 +1,5 @@
 """AllDebrid API v4/v4.1. Authentication stays in request headers."""
-from . import device_policy
+from . import device_policy,connection_policy
 import json
 import time
 from urllib.error import HTTPError
@@ -7,6 +7,7 @@ from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 from .errors import PlaybackError, Cancelled
+from .models import quality
 from .files import flatten, match_files, web_url
 
 MESSAGES = {
@@ -31,8 +32,9 @@ MESSAGES = {
 class AllDebrid:
     BASE = 'https://api.alldebrid.com/'
 
-    def __init__(self, addon):
+    def __init__(self, addon, policy_addons=()):
         self.addon = addon
+        self.policies=(addon,)+tuple(policy_addons)
         self.key = addon.getSetting('alldebrid_api_key').strip()
 
     @property
@@ -87,7 +89,21 @@ class AllDebrid:
             if progress.iscanceled() or monitor.waitForAbort(0.1):
                 raise Cancelled('Playback cancelled.')
 
-    def unlock(self, url, progress, monitor):
+    def eligible(self,row):
+        for addon in self.policies:
+            try:connection_policy.validate_settings(addon)
+            except ValueError as error:raise PlaybackError(str(error)) from None
+        return all(device_policy.allows(addon,row) and connection_policy.allows(addon,row) for addon in self.policies)
+
+    @staticmethod
+    def reported(data,source=None):
+        row=dict(source or {});extra=dict(row.get('extra') or {});row['extra']=extra
+        if 'filesize' in data:
+            row['size_bytes']=data['filesize'];extra['size_scope']='file'
+        if isinstance(data.get('filename'),str):row['name']=data['filename']
+        return row
+
+    def unlock(self, url, progress, monitor, source=None):
         if not web_url(url):
             raise PlaybackError('The source URL is invalid. Search again.')
         data = self.request('v4/link/unlock', {'link':url})
@@ -96,14 +112,25 @@ class AllDebrid:
             video = [s for s in streams if isinstance(s, dict) and str(s.get('quality','')).isdigit() and s.get('id')]
             if not video or not data.get('id'):
                 raise PlaybackError('AllDebrid returned no video streams.')
-            best = max(video, key=lambda s:int(s['quality']))
+            candidates=[]
+            for stream in video:
+                row=self.reported(stream,source);row['quality']=str(stream['quality'])+'p';row['debrid']=True
+                if self.eligible(row):candidates.append((stream,row))
+            if not candidates:raise PlaybackError('No debrid stream remains under current source preferences.')
+            ordered=connection_policy.order(self.policies[-1],[row for stream,row in candidates])
+            best=next(stream for stream,row in candidates if row is ordered[0])
+            source=ordered[0]
             data = self.request('v4/link/streaming', {'id':data['id'], 'stream':best['id']})
+        source=self.reported(data,source)
+        if not self.eligible(source):raise PlaybackError('Resolved file is excluded by current quality, file-size or connection preferences.')
         if data.get('delayed'):
             deadline = time.monotonic() + 60
             delayed = data['delayed']
             while time.monotonic() < deadline:
                 self.wait(progress, monitor)
                 data = self.request('v4/link/delayed', {'id':delayed})
+                source=self.reported(data,source)
+                if not self.eligible(source):raise PlaybackError('Resolved file is excluded by current source preferences.')
                 if data.get('status') == 2:
                     break
                 if data.get('status') == 3:
@@ -120,9 +147,10 @@ class AllDebrid:
             raise Cancelled('Playback cancelled.')
         if not self.enabled:
             raise PlaybackError('Enable and authorise AllDebrid in your selected provider settings.')
+        if not self.eligible(source):raise PlaybackError('This source is excluded by current source preferences. Search again.')
         url = source.get('url', '')
         if not url.startswith('magnet:'):
-            return self.unlock(url, progress, monitor)
+            return self.unlock(url, progress, monitor,source)
         data = self.request('v4/magnet/upload', {'magnets[]':[url]})
         magnets = data.get('magnets')
         if not isinstance(magnets, list) or not magnets or not isinstance(magnets[0], dict):
@@ -160,10 +188,13 @@ class AllDebrid:
         rows = data.get('magnets')
         entry = next((row for row in (rows if isinstance(rows,list) else []) if isinstance(row,dict) and str(row.get('id'))==str(magnet_id)), None)
         candidates = match_files(flatten(entry.get('files') if entry else []), source.get('extra',{}).get('item',{}))
-        candidates=device_policy.filter_rows(self.addon,candidates)
+        media=source.get('extra',{}).get('item',{})
+        candidates=[dict(file,size_bytes=file.get('size'),quality=quality(file.get('name')),debrid=True,extra={'item':media,'size_scope':'file'}) for file in candidates]
+        candidates=connection_policy.order(self.policies[-1],[file for file in candidates if self.eligible(file)])
         if not candidates:
-            raise PlaybackError('No matching video file remains for this title/episode and current quality settings. Try another source or adjust the quality limit.')
+            raise PlaybackError('No matching video file remains for this title/episode and current source preferences. Try another source or adjust quality, size or connection limits.')
         selected = 0 if len(candidates)==1 else choose([f['name'] for f in candidates])
         if selected < 0:
             raise Cancelled('File selection cancelled.')
-        return self.unlock(candidates[selected]['url'], progress, monitor)
+        if type(selected) is not int or selected>=len(candidates):raise PlaybackError('Invalid file selection.')
+        return self.unlock(candidates[selected]['url'], progress, monitor,candidates[selected])

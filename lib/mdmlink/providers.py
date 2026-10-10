@@ -4,6 +4,7 @@ import os
 import re
 import unicodedata
 from urllib.parse import quote, urlencode, urlsplit, urlunsplit
+from . import connection_policy
 from .errors import PlaybackError
 from .files import VIDEO_EXTENSIONS, match_files, web_url
 from .models import info_hash, text
@@ -47,12 +48,12 @@ class StreamProvider:
             digest=info_hash(row.get('infoHash'))
             if digest:
                 found.append({'url':'magnet:?xt=urn:btih:'+digest,'access':'debrid','label':label or name,
-                              'quality':name+' '+label,'size':hints.get('videoSize',0)/1024**3 if type(hints.get('videoSize')) in (int,float) else ''})
+                              'quality':name+' '+label,'size':connection_policy.bytes_gib(hints.get('videoSize')) or '', 'size_scope':'file'})
             elif not self.torrents_only and web_url(row.get('url')):
                 # Browser-only URLs, archive formats and header/proxy requirements need their own resolver.
                 if hints.get('proxyHeaders') or any(row.get(key) for key in ('externalUrl','nzbUrl','rarUrls','zipUrls')): continue
                 found.append({'url':row['url'],'access':'free','label':label or name,'quality':name+' '+label,
-                              'size':hints.get('videoSize',0)/1024**3 if type(hints.get('videoSize')) in (int,float) else ''})
+                              'size':connection_policy.bytes_gib(hints.get('videoSize')) or '', 'size_scope':'file'})
         return found
 
 class ArchiveProvider:
@@ -137,7 +138,7 @@ class ArchiveProvider:
                         if re.search(r'(?i)(s\d+[ ._-]*e\d+|\d+x[ ._-]*\d+)',stem): continue
                         if normal(stem) in expected and file not in matched: matched.append(file)
                 for file in matched:
-                    found.append({'url':file['url'],'label':file['name'],'quality':file['name'],'access':'free','size':file['size']/1024**3})
+                    found.append({'url':file['url'],'label':file['name'],'quality':file['name'],'access':'free','size':file['size']/1024**3, 'size_scope':'file'})
             if found or read>=5: break
         if not found and errors and errors==read: raise PlaybackError('Internet Archive item requests failed. Try again later.')
         return found
