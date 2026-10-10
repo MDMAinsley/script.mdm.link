@@ -37,7 +37,7 @@ def match_files(rows, item):
     episode = item.get('media_type') == 'episode'
     if episode:
         season, episode_number = int(item['season']), int(item['episode'])
-        pattern = re.compile(r'(?i)(?<![a-z0-9])(?:s0*{}[ ._-]*e0*{}(?![0-9])|0*{}x0*{}(?![0-9]))'.format(season,episode_number,season,episode_number))
+        pattern = re.compile(r'(?i)(?<![a-z0-9])(?:s0*{}[ ._-]*e0*{}(?![0-9])|0*{}x[ ._-]*0*{}(?![0-9]))'.format(season,episode_number,season,episode_number))
     for file in rows:
         name = file.get('name', '')
         lower = name.lower()

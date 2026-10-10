@@ -51,6 +51,8 @@ def search(addon,media,cancel=lambda:False,update=lambda percent,message:None,fe
     selected=mode(addon); ready=debrid_ready(addon)
     rows=[row for row in rows if (not row['debrid'] and selected!='Debrid') or (row['debrid'] and selected!='Free' and ready)]
     addon.setSetting('last_search_status',json.dumps(statuses,separators=(',',':')))
+    addon.setSetting('last_search_summary',json.dumps({'mode':selected,'free':sum(not row['debrid'] for row in rows),
+                     'debrid':sum(row['debrid'] for row in rows),'total':len(rows)},separators=(',',':')))
     if not rows and statuses and all(s['status']!='ok' for s in statuses):
         raise PlaybackError('All enabled Link providers failed or timed out. Check your connection/provider settings.')
     return rows
@@ -81,5 +83,11 @@ def status(addon):
                 if isinstance(s,dict) and s.get('provider') in ('archive','torrentio','stream_1','stream_2','stream_3')
                 and s.get('status') in ('ok','error','timed_out') and type(s.get('sources')) is int]
     except Exception: values=[]
+    try:
+        summary=json.loads(addon.getSetting('last_search_summary') or '{}')
+        if not isinstance(summary,dict) or summary.get('mode') not in MODES or any(type(summary.get(k)) is not int or summary[k]<0 for k in ('free','debrid','total')):
+            summary={}
+        else: summary={key:summary[key] for key in ('mode','free','debrid','total')}
+    except Exception:summary={}
     return {'api_version':API_VERSION,'mode':mode(addon),'alldebrid_enabled':AllDebrid(addon).enabled,
-            'alldebrid_configured':bool(AllDebrid(addon).key),'providers':[p.id for p in registry(addon)],'last_search':values}
+            'alldebrid_configured':bool(AllDebrid(addon).key),'providers':[p.id for p in registry(addon)],'last_search':values,'last_search_summary':summary}

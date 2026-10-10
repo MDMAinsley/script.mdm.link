@@ -1,4 +1,4 @@
-# MDM Link 0.1.0
+# MDM Link 0.1.1
 
 Source search/resolution backend for MDM Flix. This first batch provides an extensible API, two built-in adapters and three configurable stream-provider slots.
 
@@ -14,7 +14,7 @@ AllDebrid credentials are copied from Flix once inside Kodi when Link is first s
 
 ## Built-in providers
 
-**Internet Archive:** searches public movie metadata by exact title/known aliases and year, then offers downloadable video files. TV matching requires the show identity plus matching season/episode coordinates or an exact episode filename. Private/restricted files, samples and trailers are excluded. Coverage is limited to indexed, identifiable items, including classic films/TV; no result for a title is a normal outcome. Source language and quality depend on the uploaded file. Search reads at most three matching item records.
+**Internet Archive:** searches public movie metadata by exact title/known aliases and year, then offers downloadable video files. TV matching requires the show identity plus matching season/episode coordinates or an exact episode filename. Private/restricted files, samples and trailers are excluded. Coverage is limited to indexed, identifiable items, including classic films/TV; no result for a title is a normal outcome. Source language and quality depend on the uploaded file. Episode searches first target the requested coordinates or episode title, then fall back to the show if needed. Hits use stable download/identifier ordering. Search reads at most five matching item records within the overall deadline.
 
 **Torrentio:** retrieves torrent metadata using IMDb movie IDs or show ID/season/episode. Link creates normalised magnet candidates and resolves only the user's selected candidate through AllDebrid. This adapter queries Torrentio's public service independently of CocoScrapers; it is not a copy of all underlying web scrapers. No torrent client/download engine is provided for free mode.
 
@@ -22,7 +22,7 @@ AllDebrid credentials are copied from Flix once inside Kodi when Link is first s
 
 ## Reliability and limitations
 
-The versioned `mdmlink.api` interface accepts movie/episode identity, returns normalised sources and resolves a selected source. At most five daemon workers search concurrently with a 30-second overall limit, bounded metadata response sizes and request timeouts. Cancelling returns promptly; an already running network read can finish in the background. Adapter failures are isolated, completed provider results remain available, and diagnostics record only provider ID/status/count. Equivalent magnets and direct URLs are deduplicated within their access type.
+The versioned `mdmlink.api` interface accepts movie/episode identity, returns normalised sources and resolves a selected source. At most five daemon workers search concurrently with a 30-second overall limit, bounded metadata response sizes and request timeouts. Cancelling returns promptly; an already running network read can finish in the background. Adapter failures are isolated, completed provider results remain available, and diagnostics record only provider ID/status/count and final free/debrid/total counts. Equivalent magnets and direct URLs are deduplicated within their access type.
 
 Flix retains its 30-minute source sessions, manual choice and one-candidate autoplay. Autoplay does not silently submit additional torrents or fall back between access modes. Select another source manually after a failure. AllDebrid availability remains unchecked until selection; uncached selections may create account transfers. Cancellation/timeouts do not delete transfers. AllDebrid preparation limits remain 60 seconds per stage plus an in-flight request.
 

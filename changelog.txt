@@ -1,3 +1,8 @@
+0.1.1
+- Focus episode searches by coordinates/title before the general show fallback.
+- Stable Archive hit ordering, five-item metadata budget and multi-value year matching.
+- Safe post-filter free/debrid result counts in diagnostics.
+
 0.1.0
 - Versioned source-search and selected-source resolution API, exported as a Kodi module.
 - Free, Debrid and Combined modes; enabled debrid prioritised.

@@ -18,5 +18,6 @@
     <setting id="alldebrid_api_key" type="text" option="hidden" label="API key (or authorise from Link menu / Flix Tools)" default="" />
     <setting id="flix_account_imported" type="bool" visible="false" default="false" />
     <setting id="last_search_status" type="text" visible="false" default="" />
+    <setting id="last_search_summary" type="text" visible="false" default="" />
   </category>
 </settings>
