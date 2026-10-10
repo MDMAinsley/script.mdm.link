@@ -8,8 +8,9 @@ from .files import web_url
 MAX_BYTES=4*1024*1024
 
 class Context:
-    def __init__(self, stop, deadline, fetch=None):
+    def __init__(self, stop, deadline, fetch=None, request_timeout=10):
         self.stop,self.deadline,self.fetch=stop,deadline,fetch
+        self.request_timeout=request_timeout if type(request_timeout) is int and 10<=request_timeout<=60 else 10
 
     def check(self):
         if self.stop.is_set(): raise Cancelled('Source search cancelled.')
@@ -23,7 +24,7 @@ class Context:
         else:
             try:
                 request=Request(url,headers={'User-Agent':'MDM-Link/0.1.0','Accept':'application/json'})
-                timeout=max(0.1,min(10,self.deadline-time.monotonic()))
+                timeout=max(0.1,min(self.request_timeout,self.deadline-time.monotonic()))
                 with urlopen(request,timeout=timeout) as response:
                     raw=response.read(MAX_BYTES+1)
                 if len(raw)>MAX_BYTES: raise ValueError('oversized')

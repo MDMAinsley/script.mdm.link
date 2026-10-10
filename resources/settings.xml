@@ -20,4 +20,5 @@
     <setting id="last_search_status" type="text" visible="false" default="" />
     <setting id="last_search_summary" type="text" visible="false" default="" />
   </category>
+<category label="Device tuning"><setting id="device_quality_max" type="select" label="Maximum reported quality" default="Unlimited" values="Unlimited|720p|1080p|4K" /><setting id="device_unknown_quality" type="select" label="Unknown source quality" default="Show" values="Show|Hide" /><setting id="device_workers" type="integer" label="Provider workers" default="5" /><setting id="device_search_timeout" type="integer" label="Search budget (10-120 seconds)" default="30" /><setting id="device_request_timeout" type="integer" label="Request timeout (10-60 seconds)" default="10" /></category>
 </settings>

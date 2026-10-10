@@ -1,3 +1,6 @@
+0.2.0
+Device-local profiles, reversible tuning, bounded worker/search/request settings and reported-quality limits. Light Flix artwork reduces image size and omits catalogue fanart. Unknown quality is configurable. TV/decoder capability is not inferred from the Kodi screen. Portable builds exclude device tuning; external scraper requests may finish after a deadline. No bandwidth ranking or cache/widget tuning in this release.
+
 0.1.1
 - Focus episode searches by coordinates/title before the general show fallback.
 - Stable Archive hit ordering, five-item metadata budget and multi-value year matching.

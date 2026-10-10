@@ -1,4 +1,5 @@
 """AllDebrid API v4/v4.1. Authentication stays in request headers."""
+from . import device_policy
 import json
 import time
 from urllib.error import HTTPError
@@ -52,7 +53,7 @@ class AllDebrid:
         req = Request(url, data=None if get_endpoint else encoded.encode('utf-8'), headers=headers,
                       method='GET' if get_endpoint else 'POST')
         try:
-            with urlopen(req, timeout=15) as response:
+            with urlopen(req, timeout=device_policy.integer(self.addon,"device_request_timeout",15,10,60)) as response:
                 payload = json.loads(response.read().decode('utf-8'))
         except HTTPError as error:
             if error.code in (429, 503):
@@ -159,8 +160,9 @@ class AllDebrid:
         rows = data.get('magnets')
         entry = next((row for row in (rows if isinstance(rows,list) else []) if isinstance(row,dict) and str(row.get('id'))==str(magnet_id)), None)
         candidates = match_files(flatten(entry.get('files') if entry else []), source.get('extra',{}).get('item',{}))
+        candidates=device_policy.filter_rows(self.addon,candidates)
         if not candidates:
-            raise PlaybackError('No matching video file was found for this title/episode. Try another source.')
+            raise PlaybackError('No matching video file remains for this title/episode and current quality settings. Try another source or adjust the quality limit.')
         selected = 0 if len(candidates)==1 else choose([f['name'] for f in candidates])
         if selected < 0:
             raise Cancelled('File selection cancelled.')

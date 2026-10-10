@@ -35,3 +35,8 @@ Current support is AllDebrid, direct HTTP(S) video and magnet metadata. More scr
 - Torrentio: https://github.com/TheBeastLT/torrentio-scraper
 - Stremio stream responses: https://stremio.github.io/stremio-addon-sdk/api/responses/stream.html
 - AllDebrid API: https://docs.alldebrid.com/
+
+
+## Device tuning
+Device-local profiles, reversible tuning, bounded worker/search/request settings and reported-quality limits. Light Flix artwork reduces image size and omits catalogue fanart. Unknown quality is configurable. TV/decoder capability is not inferred from the Kodi screen. Portable builds exclude device tuning; external scraper requests may finish after a deadline. No bandwidth ranking or cache/widget tuning in this release.
+Use Conf Device profiles to preview/apply Low memory or Balanced and undo the last application. Low memory: Flix 2 workers, Link 1 worker, 90s search, 30s requests, Light artwork. Balanced: Flix 6 / Link 5 workers, 45s / 30s search, 15s requests, Standard artwork. Total memory at or below 2048 MB suggests Low memory; free-memory fluctuations do not reapply settings. Quality filtering happens after provider retrieval and again before resolving; both Flix and Link limits apply to Link playback. Set unknown quality to Hide for strict filtering, at the cost of fewer results. This is a preset, not a measured performance optimisation.

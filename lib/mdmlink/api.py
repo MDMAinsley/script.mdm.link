@@ -1,4 +1,5 @@
 """Versioned API consumed by Flix and future frontends."""
+from . import device_policy
 import json
 from . import API_VERSION
 from .alldebrid import AllDebrid
@@ -47,7 +48,8 @@ def search(addon,media,cancel=lambda:False,update=lambda percent,message:None,fe
     media=item(media)
     providers=registry(addon)
     if not providers: raise PlaybackError('No MDM Link providers are enabled for this mode. Open Provider Settings.')
-    rows,statuses=run_search(providers,media,cancel,update,fetch)
+    rows,statuses=run_search(providers,media,cancel,update,fetch,seconds=device_policy.integer(addon,"device_search_timeout",30,10,120),workers=device_policy.integer(addon,"device_workers",5,1,5),request_timeout=device_policy.integer(addon,"device_request_timeout",10,10,60))
+    rows=device_policy.filter_rows(addon,rows)
     selected=mode(addon); ready=debrid_ready(addon)
     rows=[row for row in rows if (not row['debrid'] and selected!='Debrid') or (row['debrid'] and selected!='Free' and ready)]
     addon.setSetting('last_search_status',json.dumps(statuses,separators=(',',':')))
@@ -60,6 +62,7 @@ def search(addon,media,cancel=lambda:False,update=lambda percent,message:None,fe
 def resolve(addon,source,progress,monitor,choose):
     if progress.iscanceled() or monitor.abortRequested(): raise Cancelled('Playback cancelled.')
     if not isinstance(source,dict) or source.get('provider_id')!='mdm_link': raise PlaybackError('Invalid MDM Link source. Search again.')
+    if not device_policy.allows(addon,source):raise PlaybackError('This source exceeds your current quality limit or has hidden unknown quality. Search again or change Device settings.')
     extra=source.get('extra'); extra=extra if isinstance(extra,dict) else {}
     identifier=extra.get('link_provider')
     provider=next((p for p in registry(addon) if p.id==identifier),None)

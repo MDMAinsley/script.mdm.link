@@ -6,13 +6,15 @@ from .errors import Cancelled
 from .models import merge, source
 from .transport import Context
 
-def search(providers,media,cancel=lambda:False,update=lambda percent,message:None,fetch=None,seconds=30):
+def search(providers,media,cancel=lambda:False,update=lambda percent,message:None,fetch=None,seconds=30,workers=5,request_timeout=10):
     if cancel(): raise Cancelled('Source search cancelled.')
     if not providers: return [],[]
-    stop=threading.Event(); results=queue.Queue(); deadline=time.monotonic()+seconds
+    seconds=seconds if type(seconds) in (int,float) and 0<seconds<=120 else 30
+    workers=workers if type(workers) is int and 1<=workers<=5 else 5
+    stop=threading.Event(); results=queue.Queue(); jobs=queue.Queue(); deadline=time.monotonic()+seconds
     def worker(provider):
         try:
-            rows=provider.search(media,Context(stop,deadline,fetch))
+            rows=provider.search(media,Context(stop,deadline,fetch,request_timeout))
             if not isinstance(rows,list): raise ValueError('Invalid provider rows')
             clean=[]
             for row in rows[:250]:
@@ -26,7 +28,13 @@ def search(providers,media,cancel=lambda:False,update=lambda percent,message:Non
         if not stop.is_set(): results.put((provider.id,clean,status))
     # The registry caps at five jobs. No unbounded executors or wait-on-shutdown.
     providers=providers[:5]
-    for provider in providers: threading.Thread(target=worker,args=(provider,),daemon=True).start()
+    for provider in providers:jobs.put(provider)
+    def consume():
+        while not stop.is_set() and time.monotonic()<deadline:
+            try:provider=jobs.get_nowait()
+            except queue.Empty:return
+            worker(provider)
+    for _ in range(min(workers,len(providers))):threading.Thread(target=consume,daemon=True).start()
     groups=[]; statuses=[]; remaining={p.id for p in providers}
     try:
         while remaining and time.monotonic()<deadline:
