@@ -1,6 +1,7 @@
 """AllDebrid API v4/v4.1. Authentication stays in request headers."""
 from . import device_policy,connection_policy
 import json
+from contextlib import contextmanager
 import time
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urlsplit
@@ -36,6 +37,26 @@ class AllDebrid:
         self.addon = addon
         self.policies=(addon,)+tuple(policy_addons)
         self.key = addon.getSetting('alldebrid_api_key').strip()
+        self.deadline = None
+
+    @contextmanager
+    def resolution_budget(self):
+        previous = self.deadline
+        if previous is None:
+            self.deadline = time.monotonic() + 45
+        try:
+            yield
+        finally:
+            self.deadline = previous
+
+    def remaining(self):
+        return None if self.deadline is None else max(0, self.deadline - time.monotonic())
+
+    @staticmethod
+    def timeout_message():
+        return ('AllDebrid did not finish preparing the selected source within the 45-second resolution budget. '
+                'It may still be downloading or generating a link. Try another ready source or retry later; '
+                'any created transfer remains in your account.')
 
     @property
     def enabled(self):
@@ -54,8 +75,14 @@ class AllDebrid:
             url += '?' + encoded
         req = Request(url, data=None if get_endpoint else encoded.encode('utf-8'), headers=headers,
                       method='GET' if get_endpoint else 'POST')
+        remaining = self.remaining()
+        if remaining is not None and remaining <= 0:
+            raise PlaybackError(self.timeout_message())
+        timeout = device_policy.integer(self.addon,"device_request_timeout",15,10,60)
+        if remaining is not None:
+            timeout = min(timeout, remaining)
         try:
-            with urlopen(req, timeout=device_policy.integer(self.addon,"device_request_timeout",15,10,60)) as response:
+            with urlopen(req, timeout=timeout) as response:
                 payload = json.loads(response.read().decode('utf-8'))
         except HTTPError as error:
             if error.code in (429, 503):
@@ -65,7 +92,11 @@ class AllDebrid:
             except Exception:
                 raise PlaybackError('AllDebrid request failed. Check authorisation and your connection.') from None
         except Exception:
+            if self.remaining() == 0:
+                raise PlaybackError(self.timeout_message()) from None
             raise PlaybackError('Could not contact AllDebrid. Check your internet connection and try again.') from None
+        if self.remaining() == 0:
+            raise PlaybackError(self.timeout_message())
         if not isinstance(payload, dict):
             raise PlaybackError('AllDebrid returned an invalid response. Try again.')
         if payload.get('status') != 'success':
@@ -83,8 +114,10 @@ class AllDebrid:
             raise PlaybackError('AllDebrid account information is unavailable.')
         return data
 
-    @staticmethod
-    def wait(progress, monitor, seconds=5):
+    def wait(self, progress, monitor, seconds=5):
+        remaining = self.remaining()
+        if remaining is not None and remaining < seconds:
+            raise PlaybackError(self.timeout_message())
         for _ in range(seconds * 10):
             if progress.iscanceled() or monitor.waitForAbort(0.1):
                 raise Cancelled('Playback cancelled.')
@@ -96,6 +129,48 @@ class AllDebrid:
         return all(device_policy.allows(addon,row) and connection_policy.allows(addon,row) for addon in self.policies)
 
     @staticmethod
+    def file_candidate(file, source):
+        row = dict(file)
+        extra = dict(source.get('extra') or {})
+        extra['size_scope'] = 'file'
+        reported = quality(file.get('name'))
+        if reported == 'Unknown':
+            height = device_policy.height(source)
+            reported = str(height) + 'p' if height else 'Unknown'
+            extra['quality_origin'] = 'source_report' if height else 'unknown'
+        else:
+            extra['quality_origin'] = 'file_name'
+        row.update(size_bytes=file.get('size'), quality=reported, debrid=True, extra=extra)
+        # The file row deliberately has its own name, not the release label.
+        # Explicit file quality takes precedence; fallback is reported metadata,
+        # not a claim to have measured/decoded the file.
+        return row
+
+    def exclusions(self, row):
+        reasons = set()
+        for addon in self.policies:
+            try:
+                connection_policy.validate_settings(addon)
+            except ValueError as error:
+                raise PlaybackError(str(error)) from None
+            height = device_policy.height(row)
+            if not device_policy.allows(addon, row):
+                reasons.add('unknown quality hidden' if height is None else 'maximum reported quality')
+            size = connection_policy.size_gib(row)
+            maximum = connection_policy.decimal(addon, 'device_max_size_gib', 10000)
+            if maximum:
+                if size is None and connection_policy.setting(addon, 'device_unknown_size', 'Show') == 'Hide':
+                    reasons.add('unknown file size hidden')
+                elif size is not None and size > maximum:
+                    reasons.add('maximum file size')
+            state, _ = connection_policy.assessment(addon, row)
+            if state == 'Above budget' and connection_policy.setting(addon, 'device_slow_sources', 'Show') == 'Hide':
+                reasons.add('connection bitrate budget')
+            if state == 'Unknown' and connection_policy.setting(addon, 'device_unknown_bitrate', 'Show') == 'Hide':
+                reasons.add('unknown bitrate hidden')
+        return reasons
+
+    @staticmethod
     def reported(data,source=None):
         row=dict(source or {});extra=dict(row.get('extra') or {});row['extra']=extra
         if 'filesize' in data:
@@ -104,6 +179,13 @@ class AllDebrid:
         return row
 
     def unlock(self, url, progress, monitor, source=None):
+        with self.resolution_budget():
+            return self._unlock(url, progress, monitor, source)
+
+    def _unlock(self, url, progress, monitor, source=None):
+        if progress.iscanceled() or monitor.abortRequested():
+            raise Cancelled('Playback cancelled.')
+        progress.update(85, 'AllDebrid: generating the selected video link (45s total preparation budget).')
         if not web_url(url):
             raise PlaybackError('The source URL is invalid. Search again.')
         data = self.request('v4/link/unlock', {'link':url})
@@ -124,7 +206,7 @@ class AllDebrid:
         source=self.reported(data,source)
         if not self.eligible(source):raise PlaybackError('Resolved file is excluded by current quality, file-size or connection preferences.')
         if data.get('delayed'):
-            deadline = time.monotonic() + 60
+            deadline = self.deadline
             delayed = data['delayed']
             while time.monotonic() < deadline:
                 self.wait(progress, monitor)
@@ -143,6 +225,10 @@ class AllDebrid:
         return link
 
     def resolve(self, source, progress, monitor, choose):
+        with self.resolution_budget():
+            return self._resolve(source, progress, monitor, choose)
+
+    def _resolve(self, source, progress, monitor, choose):
         if progress.iscanceled() or monitor.abortRequested():
             raise Cancelled('Playback cancelled.')
         if not self.enabled:
@@ -151,6 +237,7 @@ class AllDebrid:
         url = source.get('url', '')
         if not url.startswith('magnet:'):
             return self.unlock(url, progress, monitor,source)
+        progress.update(10, 'AllDebrid: checking the selected release; availability is not yet verified.')
         data = self.request('v4/magnet/upload', {'magnets[]':[url]})
         magnets = data.get('magnets')
         if not isinstance(magnets, list) or not magnets or not isinstance(magnets[0], dict):
@@ -164,7 +251,7 @@ class AllDebrid:
         if not magnet_id:
             raise PlaybackError('AllDebrid returned no transfer ID.')
         # Check only the selected source; never upload all search results for a cache probe.
-        deadline = time.monotonic() + 60
+        deadline = self.deadline
         while True:
             if progress.iscanceled() or monitor.abortRequested():
                 raise Cancelled('Playback cancelled.')
@@ -181,19 +268,44 @@ class AllDebrid:
             if type(code) is not int or code >= 5:
                 raise PlaybackError('AllDebrid could not prepare this torrent. Try another source.')
             if time.monotonic() >= deadline:
-                raise PlaybackError('AllDebrid is still downloading this source. It remains in your account; try it again when ready.')
-            progress.update(50, 'AllDebrid is preparing the selected source. Cancel to return.')
+                raise PlaybackError(self.timeout_message())
+            progress.update(50, 'AllDebrid: selected release is still downloading/preparing ({}s left). Cancel to return.'.format(max(0, int(self.remaining()))))
             self.wait(progress, monitor)
         data = self.request('v4/magnet/files', {'id[]':[magnet_id]})
         rows = data.get('magnets')
         entry = next((row for row in (rows if isinstance(rows,list) else []) if isinstance(row,dict) and str(row.get('id'))==str(magnet_id)), None)
-        candidates = match_files(flatten(entry.get('files') if entry else []), source.get('extra',{}).get('item',{}))
-        media=source.get('extra',{}).get('item',{})
-        candidates=[dict(file,size_bytes=file.get('size'),quality=quality(file.get('name')),debrid=True,extra={'item':media,'size_scope':'file'}) for file in candidates]
-        candidates=connection_policy.order(self.policies[-1],[file for file in candidates if self.eligible(file)])
+        progress.update(75, 'AllDebrid: matching video files and checking your source preferences.')
+        if entry is None or entry.get('error'):
+            raise PlaybackError('AllDebrid could not return the selected release file list. Retry it or try another source.')
+        files = flatten(entry.get('files'))
+        videos = match_files(files, {})
+        if not videos:
+            raise PlaybackError('No supported video files were returned for this release (samples/trailers excluded). Try another source.')
+        media = source.get('extra',{}).get('item',{})
+        matches = match_files(videos, media)
+        if not matches:
+            expected = 'S{:02d}E{:02d}'.format(int(media['season']), int(media['episode'])) if media.get('media_type') == 'episode' else 'this title'
+            raise PlaybackError('No matching video file for {} was found in this release. No different episode was selected; try another source.'.format(expected))
+        candidates = [self.file_candidate(file, source) for file in matches]
+        allowed = []; reasons = set()
+        for file in candidates:
+            excluded = self.exclusions(file)
+            if excluded:
+                reasons.update(excluded)
+            else:
+                allowed.append(file)
+        candidates = connection_policy.order(self.policies[-1], allowed)
         if not candidates:
-            raise PlaybackError('No matching video file remains for this title/episode and current source preferences. Try another source or adjust quality, size or connection limits.')
-        selected = 0 if len(candidates)==1 else choose([f['name'] for f in candidates])
+            raise PlaybackError('Matching video files were found, but all were excluded by: {}. Check preferences in Flix and your selected provider, or try another source.'.format(', '.join(sorted(reasons))))
+        if len(candidates) == 1:
+            selected = 0
+        else:
+            choosing = time.monotonic()
+            try:
+                selected = choose([f['name'] for f in candidates])
+            finally:
+                # A user's time in the file chooser is not network preparation.
+                self.deadline += max(0, time.monotonic() - choosing)
         if selected < 0:
             raise Cancelled('File selection cancelled.')
         if type(selected) is not int or selected>=len(candidates):raise PlaybackError('Invalid file selection.')

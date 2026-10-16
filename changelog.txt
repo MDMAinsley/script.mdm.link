@@ -1,3 +1,6 @@
+0.3.1
+Preserve reported quality when file names omit it; explain exact file rejection; share a 45-second total AllDebrid preparation budget.
+
 0.3.0
 Connection speed, maximum reported GiB, explicit missing-metadata controls, estimated average bitrate with 25% reserve, and Quality/Connection/Smallest ordering. Debrid priority preserved; manual selection and single-source autoplay use the same limits. Device-local preferences; no speed probe or stability guarantee. Whole episode-pack sizes do not produce episode bitrate estimates. Conf provides preview/apply/undo for both addons.
 
