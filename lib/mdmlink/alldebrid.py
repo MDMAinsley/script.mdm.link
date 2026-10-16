@@ -7,7 +7,8 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
-from .errors import PlaybackError, Cancelled
+from .errors import PlaybackError, Cancelled, SourceFailure, SourcePreparing, AutoplayBudgetExpired
+from . import autoplay_context
 from .models import quality
 from .files import flatten, match_files, web_url
 
@@ -43,7 +44,9 @@ class AllDebrid:
     def resolution_budget(self):
         previous = self.deadline
         if previous is None:
-            self.deadline = time.monotonic() + 45
+            autoplay_context.check()
+            remaining = autoplay_context.remaining()
+            self.deadline = time.monotonic() + (min(45, remaining) if remaining is not None else 45)
         try:
             yield
         finally:
@@ -51,6 +54,10 @@ class AllDebrid:
 
     def remaining(self):
         return None if self.deadline is None else max(0, self.deadline - time.monotonic())
+
+    def timeout_error(self):
+        autoplay_context.check()
+        return SourcePreparing(self.timeout_message())
 
     @staticmethod
     def timeout_message():
@@ -77,7 +84,7 @@ class AllDebrid:
                       method='GET' if get_endpoint else 'POST')
         remaining = self.remaining()
         if remaining is not None and remaining <= 0:
-            raise PlaybackError(self.timeout_message())
+            raise self.timeout_error()
         timeout = device_policy.integer(self.addon,"device_request_timeout",15,10,60)
         if remaining is not None:
             timeout = min(timeout, remaining)
@@ -93,16 +100,17 @@ class AllDebrid:
                 raise PlaybackError('AllDebrid request failed. Check authorisation and your connection.') from None
         except Exception:
             if self.remaining() == 0:
-                raise PlaybackError(self.timeout_message()) from None
+                raise self.timeout_error() from None
             raise PlaybackError('Could not contact AllDebrid. Check your internet connection and try again.') from None
         if self.remaining() == 0:
-            raise PlaybackError(self.timeout_message())
+            raise self.timeout_error()
         if not isinstance(payload, dict):
             raise PlaybackError('AllDebrid returned an invalid response. Try again.')
         if payload.get('status') != 'success':
             error = payload.get('error')
             code = error.get('code') if isinstance(error, dict) else None
-            raise PlaybackError(MESSAGES.get(code, 'AllDebrid could not process this source. Check your account or try another source.'))
+            failure = SourceFailure if code in ('LINK_DOWN','LINK_HOST_UNAVAILABLE','LINK_HOST_NOT_SUPPORTED','MAGNET_INVALID_ID','MAGNET_INVALID_URI','MAGNET_INVALID') else PlaybackError
+            raise failure(MESSAGES.get(code, 'AllDebrid could not process this source. Check your account or try another source.'))
         data = payload.get('data')
         if not isinstance(data, dict):
             raise PlaybackError('AllDebrid returned an incomplete response. Try again.')
@@ -117,7 +125,7 @@ class AllDebrid:
     def wait(self, progress, monitor, seconds=5):
         remaining = self.remaining()
         if remaining is not None and remaining < seconds:
-            raise PlaybackError(self.timeout_message())
+            raise self.timeout_error()
         for _ in range(seconds * 10):
             if progress.iscanceled() or monitor.waitForAbort(0.1):
                 raise Cancelled('Playback cancelled.')
@@ -187,41 +195,43 @@ class AllDebrid:
             raise Cancelled('Playback cancelled.')
         progress.update(85, 'AllDebrid: generating the selected video link (45s total preparation budget).')
         if not web_url(url):
-            raise PlaybackError('The source URL is invalid. Search again.')
+            raise SourceFailure('The source URL is invalid. Search again.')
         data = self.request('v4/link/unlock', {'link':url})
         streams = data.get('streams')
         if not data.get('link') and isinstance(streams, list) and streams:
             video = [s for s in streams if isinstance(s, dict) and str(s.get('quality','')).isdigit() and s.get('id')]
             if not video or not data.get('id'):
-                raise PlaybackError('AllDebrid returned no video streams.')
+                raise SourceFailure('AllDebrid returned no video streams.')
             candidates=[]
             for stream in video:
                 row=self.reported(stream,source);row['quality']=str(stream['quality'])+'p';row['debrid']=True
                 if self.eligible(row):candidates.append((stream,row))
-            if not candidates:raise PlaybackError('No debrid stream remains under current source preferences.')
+            if not candidates:raise SourceFailure('No debrid stream remains under current source preferences.')
             ordered=connection_policy.order(self.policies[-1],[row for stream,row in candidates])
             best=next(stream for stream,row in candidates if row is ordered[0])
             source=ordered[0]
             data = self.request('v4/link/streaming', {'id':data['id'], 'stream':best['id']})
         source=self.reported(data,source)
-        if not self.eligible(source):raise PlaybackError('Resolved file is excluded by current quality, file-size or connection preferences.')
+        if not self.eligible(source):raise SourceFailure('Resolved file is excluded by current quality, file-size or connection preferences.')
         if data.get('delayed'):
+            if autoplay_context.active():
+                raise SourcePreparing('AllDebrid is still generating the selected link. Autoplay stopped rather than starting more transfers; use Source Select or retry later.')
             deadline = self.deadline
             delayed = data['delayed']
             while time.monotonic() < deadline:
                 self.wait(progress, monitor)
                 data = self.request('v4/link/delayed', {'id':delayed})
                 source=self.reported(data,source)
-                if not self.eligible(source):raise PlaybackError('Resolved file is excluded by current source preferences.')
+                if not self.eligible(source):raise SourceFailure('Resolved file is excluded by current source preferences.')
                 if data.get('status') == 2:
                     break
                 if data.get('status') == 3:
-                    raise PlaybackError('AllDebrid could not generate this link. Try another source.')
+                    raise SourceFailure('AllDebrid could not generate this link. Try another source.')
             else:
                 raise PlaybackError('AllDebrid is still preparing this link. Try again later.')
         link = data.get('link')
         if not web_url(link):
-            raise PlaybackError('AllDebrid returned no playable URL. Try another source.')
+            raise SourceFailure('AllDebrid returned no playable URL. Try another source.')
         return link
 
     def resolve(self, source, progress, monitor, choose):
@@ -241,12 +251,12 @@ class AllDebrid:
         data = self.request('v4/magnet/upload', {'magnets[]':[url]})
         magnets = data.get('magnets')
         if not isinstance(magnets, list) or not magnets or not isinstance(magnets[0], dict):
-            raise PlaybackError('AllDebrid did not accept this torrent.')
+            raise SourceFailure('AllDebrid did not accept this torrent.')
         magnet = magnets[0]
         if magnet.get('error'):
             error = magnet['error']
             code = error.get('code') if isinstance(error, dict) else None
-            raise PlaybackError(MESSAGES.get(code, 'AllDebrid rejected this torrent. Try another source.'))
+            raise (SourceFailure if code in ('MAGNET_INVALID','MAGNET_INVALID_URI','MAGNET_INVALID_ID') else PlaybackError)(MESSAGES.get(code, 'AllDebrid rejected this torrent. Try another source.'))
         magnet_id = magnet.get('id')
         if not magnet_id:
             raise PlaybackError('AllDebrid returned no transfer ID.')
@@ -266,9 +276,11 @@ class AllDebrid:
             if code == 4:
                 break
             if type(code) is not int or code >= 5:
-                raise PlaybackError('AllDebrid could not prepare this torrent. Try another source.')
+                raise SourceFailure('AllDebrid could not prepare this torrent. Try another source.')
+            if autoplay_context.active():
+                raise SourcePreparing('The selected AllDebrid release is not ready yet. Autoplay stopped rather than queueing more downloads; use Source Select or retry when ready.')
             if time.monotonic() >= deadline:
-                raise PlaybackError(self.timeout_message())
+                raise self.timeout_error()
             progress.update(50, 'AllDebrid: selected release is still downloading/preparing ({}s left). Cancel to return.'.format(max(0, int(self.remaining()))))
             self.wait(progress, monitor)
         data = self.request('v4/magnet/files', {'id[]':[magnet_id]})
@@ -276,16 +288,16 @@ class AllDebrid:
         entry = next((row for row in (rows if isinstance(rows,list) else []) if isinstance(row,dict) and str(row.get('id'))==str(magnet_id)), None)
         progress.update(75, 'AllDebrid: matching video files and checking your source preferences.')
         if entry is None or entry.get('error'):
-            raise PlaybackError('AllDebrid could not return the selected release file list. Retry it or try another source.')
+            raise SourceFailure('AllDebrid could not return the selected release file list. Retry it or try another source.')
         files = flatten(entry.get('files'))
         videos = match_files(files, {})
         if not videos:
-            raise PlaybackError('No supported video files were returned for this release (samples/trailers excluded). Try another source.')
+            raise SourceFailure('No supported video files were returned for this release (samples/trailers excluded). Try another source.')
         media = source.get('extra',{}).get('item',{})
         matches = match_files(videos, media)
         if not matches:
             expected = 'S{:02d}E{:02d}'.format(int(media['season']), int(media['episode'])) if media.get('media_type') == 'episode' else 'this title'
-            raise PlaybackError('No matching video file for {} was found in this release. No different episode was selected; try another source.'.format(expected))
+            raise SourceFailure('No matching video file for {} was found in this release. No different episode was selected; try another source.'.format(expected))
         candidates = [self.file_candidate(file, source) for file in matches]
         allowed = []; reasons = set()
         for file in candidates:
@@ -296,7 +308,7 @@ class AllDebrid:
                 allowed.append(file)
         candidates = connection_policy.order(self.policies[-1], allowed)
         if not candidates:
-            raise PlaybackError('Matching video files were found, but all were excluded by: {}. Check preferences in Flix and your selected provider, or try another source.'.format(', '.join(sorted(reasons))))
+            raise SourceFailure('Matching video files were found, but all were excluded by: {}. Check preferences in Flix and your selected provider, or try another source.'.format(', '.join(sorted(reasons))))
         if len(candidates) == 1:
             selected = 0
         else:
@@ -305,7 +317,9 @@ class AllDebrid:
                 selected = choose([f['name'] for f in candidates])
             finally:
                 # A user's time in the file chooser is not network preparation.
-                self.deadline += max(0, time.monotonic() - choosing)
+                elapsed = max(0, time.monotonic() - choosing)
+                self.deadline += elapsed
+                autoplay_context.exclude_choice_time(elapsed)
         if selected < 0:
             raise Cancelled('File selection cancelled.')
         if type(selected) is not int or selected>=len(candidates):raise PlaybackError('Invalid file selection.')

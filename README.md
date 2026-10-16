@@ -56,3 +56,10 @@ AllDebrid readiness and delayed-link preparation share one 45-second resolution 
 The earlier 2 Mbps and 2 GiB test values are restrictive preferences, not a measured connection. A 2 Mbps input has a 1.5 Mbps estimated budget. Above-budget filtering depends on the Show/Hide choice. Use actual measured capacity, or 0 to disable that estimate; retain a file-size cap if it is intentional. This release never resets user preferences.
 
 The preparation budget excludes time spent deliberately choosing among matching files. An in-flight network call uses its remaining timeout; cancellation is checked between those calls and during preparation waits.
+
+
+## Bounded Autoplay resolution fallback
+
+Flix 0.8.0 / Link 0.4.0: Autoplay tries up to three unique eligible candidates in existing preference order (General > Autoplay maximum sources: 1, 2 or 3). Only explicit source-local failures permit the next candidate. Cancel, account/configuration/network/rate-limit errors, an unready AllDebrid download/delayed link, and budget exhaustion stop the sequence. No parallel/bulk uploads or cache probing occurs. Source Select retains its normal selected-release preparation.
+
+The automatic resolver shares one 75-second budget after source search, with the existing 45-second per-candidate preparation maximum. It deduplicates magnet hashes/identical URLs, rechecks filters and hands Kodi one successful resolved URL. Diagnostics report status/counts without URLs, hashes, titles, accounts or credentials. Status resolved means URL handoff, not verified video playback. Errors after Kodi receives that URL do not trigger automatic retries in this batch; the reported failure was in MDM/AllDebrid resolution.
