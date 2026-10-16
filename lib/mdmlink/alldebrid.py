@@ -7,7 +7,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
-from .errors import PlaybackError, Cancelled, SourceFailure, SourcePreparing, AutoplayBudgetExpired
+from .errors import PlaybackError, Cancelled, SourceFailure, SourcePreparing, SourceNotReady, AutoplayBudgetExpired
 from . import autoplay_context
 from .models import quality
 from .files import flatten, match_files, web_url
@@ -57,7 +57,7 @@ class AllDebrid:
 
     def timeout_error(self):
         autoplay_context.check()
-        return SourcePreparing(self.timeout_message())
+        return (SourceNotReady if autoplay_context.active() else SourcePreparing)(self.timeout_message())
 
     @staticmethod
     def timeout_message():
@@ -214,12 +214,14 @@ class AllDebrid:
         source=self.reported(data,source)
         if not self.eligible(source):raise SourceFailure('Resolved file is excluded by current quality, file-size or connection preferences.')
         if data.get('delayed'):
-            if autoplay_context.active():
-                raise SourcePreparing('AllDebrid is still generating the selected link. Autoplay stopped rather than starting more transfers; use Source Select or retry later.')
             deadline = self.deadline
             delayed = data['delayed']
+            checks = 0
             while time.monotonic() < deadline:
-                self.wait(progress, monitor)
+                if autoplay_context.active() and checks >= 3:
+                    raise SourceNotReady('The selected AllDebrid link is still being generated after short readiness checks.')
+                self.wait(progress, monitor, 2 if autoplay_context.active() else 5)
+                checks += 1
                 data = self.request('v4/link/delayed', {'id':delayed})
                 source=self.reported(data,source)
                 if not self.eligible(source):raise SourceFailure('Resolved file is excluded by current source preferences.')
@@ -262,6 +264,7 @@ class AllDebrid:
             raise PlaybackError('AllDebrid returned no transfer ID.')
         # Check only the selected source; never upload all search results for a cache probe.
         deadline = self.deadline
+        checks = 0
         while True:
             if progress.iscanceled() or monitor.abortRequested():
                 raise Cancelled('Playback cancelled.')
@@ -277,12 +280,13 @@ class AllDebrid:
                 break
             if type(code) is not int or code >= 5:
                 raise SourceFailure('AllDebrid could not prepare this torrent. Try another source.')
-            if autoplay_context.active():
-                raise SourcePreparing('The selected AllDebrid release is not ready yet. Autoplay stopped rather than queueing more downloads; use Source Select or retry when ready.')
+            if autoplay_context.active() and checks >= 3:
+                raise SourceNotReady('The selected AllDebrid release is still not ready after short readiness checks; any submitted transfer remains in your account.')
             if time.monotonic() >= deadline:
                 raise self.timeout_error()
             progress.update(50, 'AllDebrid: selected release is still downloading/preparing ({}s left). Cancel to return.'.format(max(0, int(self.remaining()))))
-            self.wait(progress, monitor)
+            self.wait(progress, monitor, 2 if autoplay_context.active() else 5)
+            checks += 1
         data = self.request('v4/magnet/files', {'id[]':[magnet_id]})
         rows = data.get('magnets')
         entry = next((row for row in (rows if isinstance(rows,list) else []) if isinstance(row,dict) and str(row.get('id'))==str(magnet_id)), None)

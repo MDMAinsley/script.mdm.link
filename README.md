@@ -63,3 +63,7 @@ The preparation budget excludes time spent deliberately choosing among matching 
 Flix 0.8.0 / Link 0.4.0: Autoplay tries up to three unique eligible candidates in existing preference order (General > Autoplay maximum sources: 1, 2 or 3). Only explicit source-local failures permit the next candidate. Cancel, account/configuration/network/rate-limit errors, an unready AllDebrid download/delayed link, and budget exhaustion stop the sequence. No parallel/bulk uploads or cache probing occurs. Source Select retains its normal selected-release preparation.
 
 The automatic resolver shares one 75-second budget after source search, with the existing 45-second per-candidate preparation maximum. It deduplicates magnet hashes/identical URLs, rechecks filters and hands Kodi one successful resolved URL. Diagnostics report status/counts without URLs, hashes, titles, accounts or credentials. Status resolved means URL handoff, not verified video playback. Errors after Kodi receives that URL do not trigger automatic retries in this batch; the reported failure was in MDM/AllDebrid resolution.
+
+
+0.4.1 — 16 October 2026
+Autoplay rechecks pending readiness up to three times at two-second intervals, then advances within the existing three-candidate/75-second bounds. Selected pending magnets may remain in AllDebrid; no automatic deletion or all-results upload. Account/network failures and cancellation still stop. Flix reads an atomic timestamped URL-free report, ignores the legacy summary setting and distinguishes URL handoff from confirmed playback.

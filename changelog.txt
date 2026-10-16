@@ -23,3 +23,7 @@ Device-local profiles, reversible tuning, bounded worker/search/request settings
 - Bounded concurrent searches, duplicate removal, partial results and secret-free diagnostics.
 - Shared AllDebrid resolver, account menu and one-time Flix credential import inside Kodi.
 - Provider-aware Flix integration; initial provider/service coverage documented in README.
+
+
+0.4.1 — 16 October 2026
+Autoplay rechecks pending readiness up to three times at two-second intervals, then advances within the existing three-candidate/75-second bounds. Selected pending magnets may remain in AllDebrid; no automatic deletion or all-results upload. Account/network failures and cancellation still stop. Flix reads an atomic timestamped URL-free report, ignores the legacy summary setting and distinguishes URL handoff from confirmed playback.
