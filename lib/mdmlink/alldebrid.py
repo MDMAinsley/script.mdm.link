@@ -1,6 +1,7 @@
 """AllDebrid API v4/v4.1. Authentication stays in request headers."""
 from . import device_policy,connection_policy
 import json
+import re
 from contextlib import contextmanager
 import time
 from urllib.error import HTTPError
@@ -29,6 +30,25 @@ MESSAGES = {
     'LINK_HOST_NOT_SUPPORTED':'AllDebrid does not support this source host.',
     'FREE_TRIAL_LIMIT_REACHED':'The AllDebrid trial limit has been reached.',
 }
+
+SOURCE_ERRORS={'LINK_DOWN','LINK_HOST_UNAVAILABLE','LINK_HOST_NOT_SUPPORTED','MAGNET_INVALID_ID','MAGNET_INVALID_URI','MAGNET_INVALID','MAGNET_INVALID_FILE','MAGNET_FILE_UPLOAD_FAILED','MAGNET_NO_URI'}
+SERVICE_ERRORS={'MUST_BE_PREMIUM','MAGNET_MUST_BE_PREMIUM','MAGNET_NO_SERVER','NO_SERVER','FREE_TRIAL_LIMIT_REACHED','MAGNET_TOO_MANY_ACTIVE'}
+
+def api_failure(error,per_item=False):
+    """A magnets[].error rejects that item, unless it names an account limit.
+
+    Never expose provider messages: they can contain URLs or account details.
+    Top-level unknown API errors retain the existing stop-the-run behavior.
+    """
+    value=error.get('code') if isinstance(error,dict) else None
+    code=value.strip().upper() if isinstance(value,str) else ''
+    code=code if re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}',code) else 'UNSPECIFIED_ITEM_REJECTION' if per_item else 'UNSPECIFIED_SERVICE_ERROR'
+    service=code in SERVICE_ERRORS or code.startswith(('AUTH_','PIN_','MAGNET_TOO_MANY','RATE_','QUOTA_')) or 'RATE_LIMIT' in code or code.endswith('_QUOTA_EXCEEDED')
+    recoverable=not service and (per_item or code in SOURCE_ERRORS)
+    fallback='AllDebrid rejected this release ({}). Try another source.'.format(code) if recoverable else 'AllDebrid could not process this request ({}). Check your account or retry later.'.format(code)
+    failure=(SourceFailure if recoverable else PlaybackError)(MESSAGES.get(code,fallback))
+    failure.ad_error_code=code;failure.ad_error_scope='source' if recoverable else 'service'
+    return failure
 
 
 class AllDebrid:
@@ -108,9 +128,7 @@ class AllDebrid:
             raise PlaybackError('AllDebrid returned an invalid response. Try again.')
         if payload.get('status') != 'success':
             error = payload.get('error')
-            code = error.get('code') if isinstance(error, dict) else None
-            failure = SourceFailure if code in ('LINK_DOWN','LINK_HOST_UNAVAILABLE','LINK_HOST_NOT_SUPPORTED','MAGNET_INVALID_ID','MAGNET_INVALID_URI','MAGNET_INVALID') else PlaybackError
-            raise failure(MESSAGES.get(code, 'AllDebrid could not process this source. Check your account or try another source.'))
+            raise api_failure(error)
         data = payload.get('data')
         if not isinstance(data, dict):
             raise PlaybackError('AllDebrid returned an incomplete response. Try again.')
@@ -257,8 +275,7 @@ class AllDebrid:
         magnet = magnets[0]
         if magnet.get('error'):
             error = magnet['error']
-            code = error.get('code') if isinstance(error, dict) else None
-            raise (SourceFailure if code in ('MAGNET_INVALID','MAGNET_INVALID_URI','MAGNET_INVALID_ID') else PlaybackError)(MESSAGES.get(code, 'AllDebrid rejected this torrent. Try another source.'))
+            raise api_failure(error,per_item=True)
         magnet_id = magnet.get('id')
         if not magnet_id:
             raise PlaybackError('AllDebrid returned no transfer ID.')

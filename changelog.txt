@@ -1,3 +1,6 @@
+0.4.2
+Treat nested per-magnet rejections as source failures so bounded playback/matching can try another release. Preserve stop behavior for authentication, premium, quota, VPN/server and rate-limit errors; expose only sanitized error codes and scope.
+
 0.4.0
 Typed source/preparation failures and shared Autoplay budget; stop automatic sequences on pending transfers.
 
