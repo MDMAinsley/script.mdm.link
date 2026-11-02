@@ -1,3 +1,6 @@
+0.4.3
+Choose the best preference-filtered matching file automatically during bounded Autoplay/comparison. Require episode identity in the video filename, not an ancestor directory; skip unsafe packs. Explicit manual source selection retains the chooser.
+
 0.4.2
 Treat nested per-magnet rejections as source failures so bounded playback/matching can try another release. Preserve stop behavior for authentication, premium, quota, VPN/server and rate-limit errors; expose only sanitized error codes and scope.
 

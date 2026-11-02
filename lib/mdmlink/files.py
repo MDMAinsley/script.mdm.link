@@ -47,3 +47,16 @@ def match_files(rows, item):
             continue
         result.append(file)
     return sorted(result, key=lambda f:f['size'] if type(f.get('size')) is int else 0, reverse=True)
+
+def automatic_file(candidates,item):
+    """Candidates are already preference-filtered/ranked by the resolver.
+
+    In automatic mode an episode token must be in the video filename itself;
+    a matching pack/folder name cannot stand in for a different episode.
+    """
+    for index,file in enumerate(candidates):
+        if item.get('media_type')=='episode':
+            basename=re.split(r'[/\\]',file.get('name',''))[-1]
+            if not match_files([dict(file,name=basename)],item):continue
+        return index
+    return None

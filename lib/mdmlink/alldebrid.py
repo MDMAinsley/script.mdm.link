@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 from .errors import PlaybackError, Cancelled, SourceFailure, SourcePreparing, SourceNotReady, AutoplayBudgetExpired
 from . import autoplay_context
 from .models import quality
-from .files import flatten, match_files, web_url
+from .files import flatten, match_files, web_url,automatic_file
 
 MESSAGES = {
     'AUTH_BAD_APIKEY':'AllDebrid authorisation is invalid. Authorise again in Tools.',
@@ -330,7 +330,10 @@ class AllDebrid:
         candidates = connection_policy.order(self.policies[-1], allowed)
         if not candidates:
             raise SourceFailure('Matching video files were found, but all were excluded by: {}. Check preferences in Flix and your selected provider, or try another source.'.format(', '.join(sorted(reasons))))
-        if len(candidates) == 1:
+        if autoplay_context.active():
+            selected=automatic_file(candidates,media)
+            if selected is None:raise SourceFailure('No video filename safely identifies the requested episode in this release. Trying another source.')
+        elif len(candidates) == 1:
             selected = 0
         else:
             choosing = time.monotonic()
