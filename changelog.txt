@@ -1,3 +1,6 @@
+0.4.7
+- Add an optional Cloudflare IPv4 route for Torrentio metadata with hostname verification.
+
 0.4.6
 - Isolate provider timeouts and reserve time for queued backups.
 - Support six custom stream feeds and an optional Torrentio metadata proxy.

@@ -67,6 +67,8 @@ def search(providers, media, cancel=lambda: False, update=lambda percent, messag
             status = 'error'
         if context.used_proxy:
             detail['route'] = 'proxy'
+        elif context.used_ipv4:
+            detail['route'] = 'cloudflare_ipv4'
         if not job.stop.is_set():
             finished.put((provider.id, clean, status, detail, time.monotonic()))
 

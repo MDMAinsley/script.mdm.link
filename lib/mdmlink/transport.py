@@ -1,5 +1,6 @@
 """Bounded metadata reads. Errors deliberately omit URLs and upstream bodies."""
 from http.client import HTTPException, HTTPSConnection
+import ipaddress
 import json
 import re
 import socket
@@ -7,7 +8,7 @@ import ssl
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener, urlopen
 from .errors import PlaybackError, Cancelled
 from .files import web_url
 
@@ -15,7 +16,7 @@ MAX_BYTES=4*1024*1024
 FAILURE_REASONS = frozenset({
     'http_error', 'dns_error', 'tls_certificate', 'tls_error', 'request_timeout',
     'connection_error', 'connection_interrupted', 'invalid_json', 'invalid_response',
-    'response_too_large', 'invalid_stream_list', 'search_budget', 'proxy_configuration',
+    'response_too_large', 'invalid_stream_list', 'search_budget', 'proxy_configuration', 'ipv4_dns_error',
 })
 
 
@@ -79,10 +80,87 @@ def proxy_response(request, address, timeout):
         connection.close()
 
 
+class AddressConnection(HTTPSConnection):
+    def __init__(self, host, address, timeout):
+        self.address = str(address)
+        self.tls = ssl.create_default_context()
+        super().__init__(host, 443, timeout=timeout, context=self.tls)
+
+    def connect(self):
+        raw = socket.create_connection((self.address, self.port), self.timeout)
+        try:
+            self.sock = self.tls.wrap_socket(raw, server_hostname=self.host)
+        except BaseException:
+            raw.close()
+            raise
+
+
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+def cloudflare_addresses(timeout):
+    request = Request('https://1.1.1.1/dns-query?name=torrentio.strem.fun&type=A',
+                      headers={'Accept': 'application/dns-json'})
+    opener = build_opener(ProxyHandler({}), NoRedirect())
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            body = response.read(65537)
+        if len(body) > 65536:
+            raise ValueError()
+        data = json.loads(body.decode('utf8'))
+        if not isinstance(data, dict) or type(data.get('Status')) is not int or data['Status'] != 0 or not isinstance(data.get('Answer'), list):
+            raise ValueError()
+    except (ValueError, RecursionError, OSError, HTTPException):
+        raise ProviderRequestError('ipv4_dns_error') from None
+    addresses = set()
+    for answer in data['Answer']:
+        if not isinstance(answer, dict) or answer.get('type') != 1:
+            continue
+        try:
+            address = ipaddress.IPv4Address(answer.get('data'))
+        except (ValueError, TypeError):
+            continue
+        if address.is_global and not address.is_multicast:
+            addresses.add(address)
+    if not addresses:
+        raise ProviderRequestError('ipv4_dns_error')
+    return sorted(addresses)[:2]
+
+
+def ipv4_response(request, timeout, check):
+    origin = urlsplit(request.full_url)
+    if origin.scheme != 'https' or origin.netloc != 'torrentio.strem.fun' or origin.query or origin.fragment:
+        raise ProviderRequestError('ipv4_dns_error')
+    deadline = time.monotonic() + timeout
+    addresses = cloudflare_addresses(max(0.1, min(3, timeout / 2)))
+    for index, address in enumerate(addresses):
+        check()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ProviderRequestError('request_timeout', retryable=True)
+        connection = AddressConnection(origin.hostname, address, max(0.1, remaining / (len(addresses) - index)))
+        try:
+            connection.request('GET', origin.path or '/', headers=dict(request.header_items()))
+            with connection.getresponse() as response:
+                if not 200 <= response.status < 300:
+                    raise ProviderRequestError('http_error', response.status)
+                return response.read(MAX_BYTES + 1)
+        except ssl.SSLError:
+            raise
+        except (OSError, HTTPException):
+            if index + 1 == len(addresses):
+                raise
+        finally:
+            connection.close()
+
+
 class Context:
     def __init__(self, stop, deadline, fetch=None, request_timeout=10):
         self.stop,self.deadline,self.fetch=stop,deadline,fetch
         self.used_proxy = False
+        self.used_ipv4 = False
         self.request_timeout=request_timeout if type(request_timeout) is int and 10<=request_timeout<=60 else 10
 
     def check(self):
@@ -90,12 +168,15 @@ class Context:
         if time.monotonic() >= self.deadline:
             raise ProviderRequestError('search_budget')
 
-    def _read_json(self, request, proxy=None, reserve=0):
+    def _read_json(self, request, proxy=None, reserve=0, ipv4=False):
         self.check()
         timeout = max(0.1, min(self.request_timeout, self.deadline - time.monotonic() - reserve))
         try:
             if proxy:
                 raw = proxy_response(request, proxy, timeout)
+            elif ipv4:
+                self.used_ipv4 = True
+                raw = ipv4_response(request, timeout, self.check)
             else:
                 with urlopen(request, timeout=timeout) as response:
                     raw = response.read(MAX_BYTES + 1)
@@ -113,7 +194,7 @@ class Context:
         except (ValueError, RecursionError):
             raise ProviderRequestError('invalid_json') from None
 
-    def json(self, url, *, retry=False, proxy=''):
+    def json(self, url, *, retry=False, proxy='', ipv4=False):
         self.check()
         if not web_url(url):
             raise PlaybackError('Provider address is invalid. Check Link settings.')
@@ -123,16 +204,16 @@ class Context:
             request = Request(url, headers={'User-Agent':'MDM-Link/0.1.0','Accept':'application/json'})
             reserve = min(4, max(0, (self.deadline - time.monotonic()) / 2)) if proxy else 0
             try:
-                result = self._read_json(request, reserve=reserve)
+                result = self._read_json(request, reserve=reserve, ipv4=ipv4)
             except ProviderRequestError as error:
                 remaining = self.deadline - time.monotonic()
-                proxy_eligible = error.retryable or error.reason in ('dns_error', 'connection_error')
+                proxy_eligible = error.retryable or error.reason in ('dns_error', 'connection_error', 'ipv4_dns_error')
                 if proxy and proxy_eligible and remaining >= 0.5:
                     self.check()
                     address = proxy_address(proxy)
                     self.used_proxy = True
                     result = self._read_json(request, proxy=address)
-                elif retry and error.retryable and remaining >= 2:
+                elif retry and not ipv4 and error.retryable and remaining >= 2:
                     self.stop.wait(0.25)
                     result = self._read_json(request)
                 else:

@@ -42,7 +42,8 @@ def registry(addon):
     if selected!='Free' and debrid_ready(addon) and addon.getSetting('provider_torrentio')!='false':
         proxy = addon.getSetting('provider_torrentio_proxy').strip()
         providers.append(StreamProvider('torrentio', 'Torrentio', 'https://torrentio.strem.fun', True,
-                                        metadata_proxy=proxy))
+                                        metadata_proxy=proxy,
+                                        metadata_ipv4=addon.getSetting('device_torrentio_ipv4') == 'true'))
     for slot, identifier in enumerate(STREAM_IDS, 1):
         key = 'provider_' + identifier
         base = addon.getSetting(key+'_url').strip()
@@ -108,8 +109,8 @@ def status(addon):
             code = row.get('http_status')
             if reason == 'http_error' and type(code) is int and 100 <= code <= 599:
                 entry['http_status'] = code
-            if row['provider'] == 'torrentio' and row.get('route') == 'proxy':
-                entry['route'] = 'proxy'
+            if row['provider'] == 'torrentio' and row.get('route') in ('proxy', 'cloudflare_ipv4'):
+                entry['route'] = row['route']
             cleaned.append(entry)
         values = cleaned
     except Exception: values=[]

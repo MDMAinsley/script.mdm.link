@@ -33,9 +33,10 @@ def torrentio_size(row):
 
 
 class StreamProvider:
-    def __init__(self,identifier,name,base,torrents_only=False,metadata_proxy=''):
+    def __init__(self,identifier,name,base,torrents_only=False,metadata_proxy='',metadata_ipv4=False):
         self.id,self.name,self.base,self.torrents_only=identifier,name,base,torrents_only
         self.metadata_proxy = metadata_proxy
+        self.metadata_ipv4 = metadata_ipv4
 
     @property
     def signature(self): return hashlib.sha256(self.base.encode()).hexdigest()
@@ -49,7 +50,7 @@ class StreamProvider:
             kind='series'; identifier+=':{}:{}'.format(media['season'],media['episode'])
         url=provider_base(self.base)+'/stream/'+kind+'/'+quote(identifier,safe=':')+'.json'
         if self.id == 'torrentio':
-            data = context.json(url, retry=True, proxy=self.metadata_proxy)
+            data = context.json(url, retry=True, proxy=self.metadata_proxy, ipv4=self.metadata_ipv4)
         else:
             data = context.json(url)
         streams = data.get('streams')
