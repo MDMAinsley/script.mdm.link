@@ -13,6 +13,10 @@ from .errors import PlaybackError, Cancelled
 from .files import web_url
 
 MAX_BYTES=4*1024*1024
+TORRENTIO_HOST = 'torrentio.strem.fun'
+IPV4_FALLBACK_REASONS = frozenset({
+    'dns_error', 'request_timeout', 'connection_error', 'connection_interrupted',
+})
 FAILURE_REASONS = frozenset({
     'http_error', 'dns_error', 'tls_certificate', 'tls_error', 'request_timeout',
     'connection_error', 'connection_interrupted', 'invalid_json', 'invalid_response',
@@ -101,7 +105,7 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 def cloudflare_addresses(timeout):
-    request = Request('https://1.1.1.1/dns-query?name=torrentio.strem.fun&type=A',
+    request = Request(f'https://1.1.1.1/dns-query?name={TORRENTIO_HOST}&type=A',
                       headers={'Accept': 'application/dns-json'})
     opener = build_opener(ProxyHandler({}), NoRedirect())
     try:
@@ -131,7 +135,7 @@ def cloudflare_addresses(timeout):
 
 def ipv4_response(request, timeout, check):
     origin = urlsplit(request.full_url)
-    if origin.scheme != 'https' or origin.netloc != 'torrentio.strem.fun' or origin.query or origin.fragment:
+    if origin.scheme != 'https' or origin.netloc != TORRENTIO_HOST or origin.query or origin.fragment:
         raise ProviderRequestError('ipv4_dns_error')
     deadline = time.monotonic() + timeout
     addresses = cloudflare_addresses(max(0.1, min(3, timeout / 2)))
@@ -168,9 +172,9 @@ class Context:
         if time.monotonic() >= self.deadline:
             raise ProviderRequestError('search_budget')
 
-    def _read_json(self, request, proxy=None, reserve=0, ipv4=False):
+    def _read_json(self, request, proxy=None, reserve=0, ipv4=False, timeout_cap=None):
         self.check()
-        timeout = max(0.1, min(self.request_timeout, self.deadline - time.monotonic() - reserve))
+        timeout = max(0.1, min(timeout_cap or self.request_timeout, self.deadline - time.monotonic() - reserve))
         try:
             if proxy:
                 raw = proxy_response(request, proxy, timeout)
@@ -194,7 +198,17 @@ class Context:
         except (ValueError, RecursionError):
             raise ProviderRequestError('invalid_json') from None
 
-    def json(self, url, *, retry=False, proxy='', ipv4=False):
+    def _read_with_ipv4_fallback(self, request, reserve):
+        # Give the normal route a short head start while keeping room for DNS and IPv4.
+        available = self.deadline - time.monotonic() - reserve
+        try:
+            return self._read_json(request, reserve=reserve, timeout_cap=min(3, available / 2))
+        except ProviderRequestError as error:
+            if error.reason not in IPV4_FALLBACK_REASONS or self.deadline - time.monotonic() - reserve < 0.5:
+                raise
+        return self._read_json(request, reserve=reserve, ipv4=True)
+
+    def json(self, url, *, retry=False, proxy='', ipv4=False, auto_ipv4=False):
         self.check()
         if not web_url(url):
             raise PlaybackError('Provider address is invalid. Check Link settings.')
@@ -204,7 +218,10 @@ class Context:
             request = Request(url, headers={'User-Agent':'MDM-Link/0.1.0','Accept':'application/json'})
             reserve = min(4, max(0, (self.deadline - time.monotonic()) / 2)) if proxy else 0
             try:
-                result = self._read_json(request, reserve=reserve, ipv4=ipv4)
+                if auto_ipv4 and not ipv4:
+                    result = self._read_with_ipv4_fallback(request, reserve)
+                else:
+                    result = self._read_json(request, reserve=reserve, ipv4=ipv4)
             except ProviderRequestError as error:
                 remaining = self.deadline - time.monotonic()
                 proxy_eligible = error.retryable or error.reason in ('dns_error', 'connection_error', 'ipv4_dns_error')
@@ -213,7 +230,7 @@ class Context:
                     address = proxy_address(proxy)
                     self.used_proxy = True
                     result = self._read_json(request, proxy=address)
-                elif retry and not ipv4 and error.retryable and remaining >= 2:
+                elif retry and not ipv4 and not self.used_ipv4 and error.retryable and remaining >= 2:
                     self.stop.wait(0.25)
                     result = self._read_json(request)
                 else:

@@ -1,3 +1,6 @@
+0.4.8
+- Fall back to Cloudflare IPv4 automatically when the normal Torrentio metadata connection fails.
+
 0.4.7
 - Add an optional Cloudflare IPv4 route for Torrentio metadata with hostname verification.
 

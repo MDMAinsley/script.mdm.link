@@ -8,7 +8,7 @@ from .files import web_url
 from .models import item, magnet_hash
 from .providers import ArchiveProvider, StreamProvider
 from .engine import CUSTOM_PROVIDER_SLOTS, search as run_search
-from .transport import FAILURE_REASONS
+from .transport import FAILURE_REASONS, TORRENTIO_HOST
 
 MODES=('Free','Debrid','Combined')
 STREAM_IDS = tuple('stream_{}'.format(slot) for slot in range(1, CUSTOM_PROVIDER_SLOTS + 1))
@@ -41,7 +41,7 @@ def registry(addon):
     if selected!='Debrid' and addon.getSetting('provider_archive')!='false': providers.append(ArchiveProvider())
     if selected!='Free' and debrid_ready(addon) and addon.getSetting('provider_torrentio')!='false':
         proxy = addon.getSetting('provider_torrentio_proxy').strip()
-        providers.append(StreamProvider('torrentio', 'Torrentio', 'https://torrentio.strem.fun', True,
+        providers.append(StreamProvider('torrentio', 'Torrentio', f'https://{TORRENTIO_HOST}', True,
                                         metadata_proxy=proxy,
                                         metadata_ipv4=addon.getSetting('device_torrentio_ipv4') == 'true'))
     for slot, identifier in enumerate(STREAM_IDS, 1):

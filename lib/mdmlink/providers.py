@@ -8,7 +8,7 @@ from . import connection_policy
 from .errors import PlaybackError
 from .files import VIDEO_EXTENSIONS, match_files, web_url
 from .models import info_hash, text
-from .transport import ProviderRequestError
+from .transport import ProviderRequestError, TORRENTIO_HOST
 
 def normal(value):
     return re.sub(r'[^a-z0-9]+','',unicodedata.normalize('NFKD',text(value)).encode('ascii','ignore').decode().lower())
@@ -48,9 +48,11 @@ class StreamProvider:
         kind='movie'
         if media['media_type']=='episode':
             kind='series'; identifier+=':{}:{}'.format(media['season'],media['episode'])
-        url=provider_base(self.base)+'/stream/'+kind+'/'+quote(identifier,safe=':')+'.json'
+        base = provider_base(self.base)
+        url=base+'/stream/'+kind+'/'+quote(identifier,safe=':')+'.json'
         if self.id == 'torrentio':
-            data = context.json(url, retry=True, proxy=self.metadata_proxy, ipv4=self.metadata_ipv4)
+            data = context.json(url, retry=True, proxy=self.metadata_proxy, ipv4=self.metadata_ipv4,
+                                auto_ipv4=base == f'https://{TORRENTIO_HOST}')
         else:
             data = context.json(url)
         streams = data.get('streams')
