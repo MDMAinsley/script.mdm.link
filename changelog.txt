@@ -1,3 +1,7 @@
+0.4.6
+- Isolate provider timeouts and reserve time for queued backups.
+- Support six custom stream feeds and an optional Torrentio metadata proxy.
+
 0.4.5
 - Report safe details for provider request failures.
 - Retry a transient Torrentio request once within the existing search budget.

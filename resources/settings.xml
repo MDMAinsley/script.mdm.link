@@ -12,6 +12,15 @@
     <setting id="provider_stream_2_url" type="text" option="hidden" label="Provider 2 base / manifest URL" default="" />
     <setting id="provider_stream_3_enabled" type="bool" label="Enable stream provider 3" default="true" />
     <setting id="provider_stream_3_url" type="text" option="hidden" label="Provider 3 base / manifest URL" default="" />
+    <setting id="provider_stream_4_enabled" type="bool" label="Enable stream provider 4" default="true" />
+    <setting id="provider_stream_4_url" type="text" option="hidden" label="Provider 4 base / manifest URL" default="" />
+    <setting id="provider_stream_5_enabled" type="bool" label="Enable stream provider 5" default="true" />
+    <setting id="provider_stream_5_url" type="text" option="hidden" label="Provider 5 base / manifest URL" default="" />
+    <setting id="provider_stream_6_enabled" type="bool" label="Enable stream provider 6" default="true" />
+    <setting id="provider_stream_6_url" type="text" option="hidden" label="Provider 6 base / manifest URL" default="" />
+  </category>
+  <category label="Torrentio backup connection">
+    <setting id="provider_torrentio_proxy" type="text" option="hidden" label="Optional trusted HTTP CONNECT proxy (http://host:port)" default="" />
   </category>
   <category label="AllDebrid">
     <setting id="alldebrid_enabled" type="bool" label="Enable AllDebrid (prioritised in Combined)" default="true" />

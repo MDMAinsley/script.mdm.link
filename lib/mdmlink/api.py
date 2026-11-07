@@ -7,10 +7,12 @@ from .errors import PlaybackError, Cancelled
 from .files import web_url
 from .models import item, magnet_hash
 from .providers import ArchiveProvider, StreamProvider
-from .engine import search as run_search
+from .engine import CUSTOM_PROVIDER_SLOTS, search as run_search
 from .transport import FAILURE_REASONS
 
 MODES=('Free','Debrid','Combined')
+STREAM_IDS = tuple('stream_{}'.format(slot) for slot in range(1, CUSTOM_PROVIDER_SLOTS + 1))
+PROVIDER_IDS = ('archive', 'torrentio') + STREAM_IDS
 
 def mode(addon):
     setting=addon.getSetting('source_mode') or 'Combined'
@@ -38,12 +40,14 @@ def registry(addon):
     providers=[]; selected=mode(addon)
     if selected!='Debrid' and addon.getSetting('provider_archive')!='false': providers.append(ArchiveProvider())
     if selected!='Free' and debrid_ready(addon) and addon.getSetting('provider_torrentio')!='false':
-        providers.append(StreamProvider('torrentio','Torrentio','https://torrentio.strem.fun',True))
-    for slot in range(1,4):
-        key='provider_stream_'+str(slot)
-        base=addon.getSetting(key+'_url').strip()
-        if base and addon.getSetting(key+'_enabled')!='false':
-            providers.append(StreamProvider('stream_'+str(slot),'Stream provider '+str(slot),base))
+        proxy = addon.getSetting('provider_torrentio_proxy').strip()
+        providers.append(StreamProvider('torrentio', 'Torrentio', 'https://torrentio.strem.fun', True,
+                                        metadata_proxy=proxy))
+    for slot, identifier in enumerate(STREAM_IDS, 1):
+        key = 'provider_' + identifier
+        base = addon.getSetting(key+'_url').strip()
+        if base and addon.getSetting(key+'_enabled') != 'false':
+            providers.append(StreamProvider(identifier, 'Stream provider '+str(slot), base))
     return providers
 
 def search(addon,media,cancel=lambda:False,update=lambda percent,message:None,fetch=None,diagnostic=None):
@@ -94,7 +98,7 @@ def status(addon):
         values=json.loads(addon.getSetting('last_search_status') or '[]')
         cleaned = []
         for row in values:
-            if (not isinstance(row, dict) or row.get('provider') not in ('archive','torrentio','stream_1','stream_2','stream_3')
+            if (not isinstance(row, dict) or row.get('provider') not in PROVIDER_IDS
                     or row.get('status') not in ('ok','error','timed_out') or type(row.get('sources')) is not int):
                 continue
             entry = {key: row[key] for key in ('provider','status','sources')}
@@ -104,6 +108,8 @@ def status(addon):
             code = row.get('http_status')
             if reason == 'http_error' and type(code) is int and 100 <= code <= 599:
                 entry['http_status'] = code
+            if row['provider'] == 'torrentio' and row.get('route') == 'proxy':
+                entry['route'] = 'proxy'
             cleaned.append(entry)
         values = cleaned
     except Exception: values=[]
