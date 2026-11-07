@@ -1,3 +1,7 @@
+0.4.5
+- Report safe details for provider request failures.
+- Retry a transient Torrentio request once within the existing search budget.
+
 0.4.4
 - Read explicitly reported Torrentio sizes when numeric sizes are absent.
 - Stop preparing additional transfers after an AllDebrid cooldown.

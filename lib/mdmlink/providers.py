@@ -8,6 +8,7 @@ from . import connection_policy
 from .errors import PlaybackError
 from .files import VIDEO_EXTENSIONS, match_files, web_url
 from .models import info_hash, text
+from .transport import ProviderRequestError
 
 def normal(value):
     return re.sub(r'[^a-z0-9]+','',unicodedata.normalize('NFKD',text(value)).encode('ascii','ignore').decode().lower())
@@ -46,9 +47,10 @@ class StreamProvider:
         if media['media_type']=='episode':
             kind='series'; identifier+=':{}:{}'.format(media['season'],media['episode'])
         url=provider_base(self.base)+'/stream/'+kind+'/'+quote(identifier,safe=':')+'.json'
-        data=context.json(url)
-        streams=data.get('streams')
-        if not isinstance(streams,list): raise PlaybackError('Stream provider returned no valid stream list.')
+        data = context.json(url, retry=True) if self.id == 'torrentio' else context.json(url)
+        streams = data.get('streams')
+        if not isinstance(streams, list):
+            raise ProviderRequestError('invalid_stream_list')
         found=[]
         for row in streams[:250]:
             context.check()

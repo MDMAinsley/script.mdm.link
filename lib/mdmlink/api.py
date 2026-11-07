@@ -8,6 +8,7 @@ from .files import web_url
 from .models import item, magnet_hash
 from .providers import ArchiveProvider, StreamProvider
 from .engine import search as run_search
+from .transport import FAILURE_REASONS
 
 MODES=('Free','Debrid','Combined')
 
@@ -91,9 +92,20 @@ def resolve(addon,source,progress,monitor,choose,policy_addon=None):
 def status(addon):
     try:
         values=json.loads(addon.getSetting('last_search_status') or '[]')
-        values=[{'provider':s['provider'],'status':s['status'],'sources':s['sources']} for s in values
-                if isinstance(s,dict) and s.get('provider') in ('archive','torrentio','stream_1','stream_2','stream_3')
-                and s.get('status') in ('ok','error','timed_out') and type(s.get('sources')) is int]
+        cleaned = []
+        for row in values:
+            if (not isinstance(row, dict) or row.get('provider') not in ('archive','torrentio','stream_1','stream_2','stream_3')
+                    or row.get('status') not in ('ok','error','timed_out') or type(row.get('sources')) is not int):
+                continue
+            entry = {key: row[key] for key in ('provider','status','sources')}
+            reason = row.get('reason')
+            if isinstance(reason, str) and reason in FAILURE_REASONS:
+                entry['reason'] = reason
+            code = row.get('http_status')
+            if reason == 'http_error' and type(code) is int and 100 <= code <= 599:
+                entry['http_status'] = code
+            cleaned.append(entry)
+        values = cleaned
     except Exception: values=[]
     try:
         summary=json.loads(addon.getSetting('last_search_summary') or '{}')
