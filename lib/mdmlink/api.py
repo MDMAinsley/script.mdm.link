@@ -45,15 +45,18 @@ def registry(addon):
             providers.append(StreamProvider('stream_'+str(slot),'Stream provider '+str(slot),base))
     return providers
 
-def search(addon,media,cancel=lambda:False,update=lambda percent,message:None,fetch=None):
+def search(addon,media,cancel=lambda:False,update=lambda percent,message:None,fetch=None,diagnostic=None):
     configured(addon)
     media=item(media)
     providers=registry(addon)
     if not providers: raise PlaybackError('No MDM Link providers are enabled for this mode. Open Provider Settings.')
     rows,statuses=run_search(providers,media,cancel,update,fetch,seconds=device_policy.integer(addon,"device_search_timeout",30,10,120),workers=device_policy.integer(addon,"device_workers",5,1,5),request_timeout=device_policy.integer(addon,"device_request_timeout",10,10,60))
+    found = len(rows)
     rows=connection_policy.select(addon,device_policy.filter_rows(addon,rows))
     selected=mode(addon); ready=debrid_ready(addon)
     rows=[row for row in rows if (not row['debrid'] and selected!='Debrid') or (row['debrid'] and selected!='Free' and ready)]
+    if diagnostic is not None:
+        diagnostic({'found': found, 'eligible': len(rows), 'providers': statuses})
     addon.setSetting('last_search_status',json.dumps(statuses,separators=(',',':')))
     addon.setSetting('last_search_summary',json.dumps({'mode':selected,'free':sum(not row['debrid'] for row in rows),
                      'debrid':sum(row['debrid'] for row in rows),'total':len(rows)},separators=(',',':')))

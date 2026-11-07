@@ -1,3 +1,7 @@
+0.4.4
+- Read explicitly reported Torrentio sizes when numeric sizes are absent.
+- Stop preparing additional transfers after an AllDebrid cooldown.
+
 0.4.3
 Choose the best preference-filtered matching file automatically during bounded Autoplay/comparison. Require episode identity in the video filename, not an ancestor directory; skip unsafe packs. Explicit manual source selection retains the chooser.
 

@@ -20,6 +20,17 @@ def provider_base(value):
     if path.endswith('/manifest.json'): path=path[:-len('/manifest.json')]
     return urlunsplit((parsed.scheme,parsed.netloc,path,'',''))
 
+def torrentio_size(row):
+    for field in ('description', 'title'):
+        label = row.get(field)
+        if isinstance(label, str):
+            match = re.search(r'\U0001f4be\ufe0f?[ \t]*(\d{1,9}(?:\.\d{1,4})?[ \t]*(?:[KMG]i?B|B))(?=[ \t]*(?:\u2699|$|\r?\n))',
+                              label[:2048], re.IGNORECASE)
+            if match:
+                return connection_policy.coco_size(match.group(1))
+    return None
+
+
 class StreamProvider:
     def __init__(self,identifier,name,base,torrents_only=False):
         self.id,self.name,self.base,self.torrents_only=identifier,name,base,torrents_only
@@ -47,8 +58,17 @@ class StreamProvider:
             name=text(row.get('name'))
             digest=info_hash(row.get('infoHash'))
             if digest:
+                size = connection_policy.bytes_gib(hints.get('videoSize'))
+                scope = 'file'
+                if size is None and self.id == 'torrentio':
+                    size = torrentio_size(row)
+                    # Torrentio describes the indexed video. Without an index,
+                    # avoid using an ambiguous size to estimate episode bitrate.
+                    index = row.get('fileIdx')
+                    if type(index) is not int or index < 0:
+                        scope = 'unknown'
                 found.append({'url':'magnet:?xt=urn:btih:'+digest,'access':'debrid','label':label or name,
-                              'quality':name+' '+label,'size':connection_policy.bytes_gib(hints.get('videoSize')) or '', 'size_scope':'file'})
+                              'quality':name+' '+label,'size':size or '', 'size_scope':scope})
             elif not self.torrents_only and web_url(row.get('url')):
                 # Browser-only URLs, archive formats and header/proxy requirements need their own resolver.
                 if hints.get('proxyHeaders') or any(row.get(key) for key in ('externalUrl','nzbUrl','rarUrls','zipUrls')): continue

@@ -23,6 +23,7 @@ MESSAGES = {
     'MUST_BE_PREMIUM':'An active AllDebrid subscription is required for this source.',
     'MAGNET_MUST_BE_PREMIUM':'An active AllDebrid subscription is required for torrent sources.',
     'MAGNET_TOO_MANY_ACTIVE':'AllDebrid has too many active transfers. Clear completed/unneeded transfers in your account.',
+    'MAGNET_PROCESSING_COOLDOWN':'AllDebrid reported a processing cooldown. Give the transfer time to finish, or select a free source if available.',
     'NO_SERVER':'AllDebrid does not allow this network/VPN connection.',
     'MAGNET_NO_SERVER':'AllDebrid does not allow this network/VPN connection.',
     'LINK_DOWN':'This source is no longer available. Try another source.',
@@ -43,10 +44,12 @@ def api_failure(error,per_item=False):
     value=error.get('code') if isinstance(error,dict) else None
     code=value.strip().upper() if isinstance(value,str) else ''
     code=code if re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}',code) else 'UNSPECIFIED_ITEM_REJECTION' if per_item else 'UNSPECIFIED_SERVICE_ERROR'
-    service=code in SERVICE_ERRORS or code.startswith(('AUTH_','PIN_','MAGNET_TOO_MANY','RATE_','QUOTA_')) or 'RATE_LIMIT' in code or code.endswith('_QUOTA_EXCEEDED')
+    cooldown = code == 'MAGNET_PROCESSING_COOLDOWN'
+    service=cooldown or code in SERVICE_ERRORS or code.startswith(('AUTH_','PIN_','MAGNET_TOO_MANY','RATE_','QUOTA_')) or 'RATE_LIMIT' in code or code.endswith('_QUOTA_EXCEEDED')
     recoverable=not service and (per_item or code in SOURCE_ERRORS)
     fallback='AllDebrid rejected this release ({}). Try another source.'.format(code) if recoverable else 'AllDebrid could not process this request ({}). Check your account or retry later.'.format(code)
-    failure=(SourceFailure if recoverable else PlaybackError)(MESSAGES.get(code,fallback))
+    error_type = SourcePreparing if cooldown else SourceFailure if recoverable else PlaybackError
+    failure=error_type(MESSAGES.get(code,fallback))
     failure.ad_error_code=code;failure.ad_error_scope='source' if recoverable else 'service'
     return failure
 
