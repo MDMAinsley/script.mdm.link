@@ -11,7 +11,7 @@ from .models import merge, source
 from .transport import Context, ProviderRequestError
 
 CUSTOM_PROVIDER_SLOTS = 6
-MAX_PROVIDERS = 2 + CUSTOM_PROVIDER_SLOTS
+MAX_PROVIDERS = 3 + CUSTOM_PROVIDER_SLOTS
 
 
 @dataclass

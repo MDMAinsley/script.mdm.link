@@ -6,6 +6,7 @@ import re
 import socket
 import ssl
 import time
+import xml.etree.ElementTree as ET
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener, urlopen
@@ -21,6 +22,7 @@ FAILURE_REASONS = frozenset({
     'http_error', 'dns_error', 'tls_certificate', 'tls_error', 'request_timeout',
     'connection_error', 'connection_interrupted', 'invalid_json', 'invalid_response',
     'response_too_large', 'invalid_stream_list', 'search_budget', 'proxy_configuration', 'ipv4_dns_error',
+    'invalid_xml', 'torznab_configuration', 'torznab_error',
 })
 
 
@@ -172,7 +174,7 @@ class Context:
         if time.monotonic() >= self.deadline:
             raise ProviderRequestError('search_budget')
 
-    def _read_json(self, request, proxy=None, reserve=0, ipv4=False, timeout_cap=None):
+    def _read(self, request, proxy=None, reserve=0, ipv4=False, timeout_cap=None, direct=False):
         self.check()
         timeout = max(0.1, min(timeout_cap or self.request_timeout, self.deadline - time.monotonic() - reserve))
         try:
@@ -181,6 +183,9 @@ class Context:
             elif ipv4:
                 self.used_ipv4 = True
                 raw = ipv4_response(request, timeout, self.check)
+            elif direct:
+                with build_opener(ProxyHandler({}), NoRedirect()).open(request, timeout=timeout) as response:
+                    raw = response.read(MAX_BYTES + 1)
             else:
                 with urlopen(request, timeout=timeout) as response:
                     raw = response.read(MAX_BYTES + 1)
@@ -193,10 +198,30 @@ class Context:
             raise connection_error(error) from None
         if len(raw) > MAX_BYTES:
             raise ProviderRequestError('response_too_large')
+        return raw
+
+    def _read_json(self, request, **options):
         try:
-            return json.loads(raw.decode('utf-8'))
+            return json.loads(self._read(request, **options).decode('utf-8'))
         except (ValueError, RecursionError):
             raise ProviderRequestError('invalid_json') from None
+
+    def xml(self, url):
+        self.check()
+        request = Request(url, headers={'User-Agent': 'MDM-Link/0.1.0', 'Accept': 'application/xml, text/xml'})
+        raw = self.fetch(url) if self.fetch else self._read(request, direct=True)
+        self.check()
+        if not isinstance(raw, bytes):
+            raise ProviderRequestError('invalid_response')
+        if len(raw) > MAX_BYTES:
+            raise ProviderRequestError('response_too_large')
+        try:
+            xml = raw.decode('utf-8-sig')
+            if '\x00' in xml or '<!DOCTYPE' in xml or '<!ENTITY' in xml:
+                raise ValueError()
+            return ET.fromstring(xml)
+        except (ValueError, ET.ParseError):
+            raise ProviderRequestError('invalid_xml') from None
 
     def _read_with_ipv4_fallback(self, request, reserve):
         # Give the normal route a short head start while keeping room for DNS and IPv4.

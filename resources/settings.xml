@@ -5,6 +5,11 @@
     <setting id="provider_archive" type="bool" label="Internet Archive (free direct video)" default="true" />
     <setting id="provider_torrentio" type="bool" label="Torrentio (requires AllDebrid)" default="true" />
   </category>
+  <category label="Torznab (Jackett / Prowlarr)">
+    <setting id="provider_torznab_enabled" type="bool" label="Enable Torznab (requires AllDebrid)" default="false" />
+    <setting id="provider_torznab_url" type="text" option="hidden" label="Torznab feed URL without API key" default="" />
+    <setting id="provider_torznab_api_key" type="text" option="hidden" label="Torznab API key" default="" />
+  </category>
   <category label="Additional stream providers">
     <setting id="provider_stream_1_enabled" type="bool" label="Enable stream provider 1" default="true" />
     <setting id="provider_stream_1_url" type="text" option="hidden" label="Provider 1 base / manifest URL" default="" />

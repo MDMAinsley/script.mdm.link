@@ -1,6 +1,6 @@
 # MDM Link 0.1.1
 
-Source search/resolution backend for MDM Flix. This first batch provides an extensible API, two built-in adapters and three configurable stream-provider slots.
+Source search and resolution backend for MDM Flix, with Internet Archive, Torrentio, Torznab and six configurable stream-provider slots.
 
 ## Setup and modes
 
@@ -18,7 +18,11 @@ AllDebrid credentials are copied from Flix once inside Kodi when Link is first s
 
 **Torrentio:** retrieves torrent metadata using IMDb movie IDs or show ID/season/episode. Link creates normalised magnet candidates and resolves only the user's selected candidate through AllDebrid. This adapter queries Torrentio's public service independently of CocoScrapers; it is not a copy of all underlying web scrapers. No torrent client/download engine is provided for free mode.
 
-**Additional stream providers:** enter up to three Stremio-compatible provider base or manifest URLs. Addresses are masked because configured paths can contain secrets; diagnostics show slot IDs only. Providers must offer `/stream/movie/{imdb}.json` and/or `/stream/series/{imdb}:{season}:{episode}.json`. Direct HTTP(S) video and `infoHash` torrent records are supported. Use direct providers that offer free streams for the free path; upstream subscription entitlement cannot be inferred from a URL. Browser links, DRM, archive/NZB responses, YouTube IDs and proxy/header-dependent streams require future adapters and are currently skipped. Query-string configuration is not supported; use the provider's documented base/configured path URL. Changing an address invalidates its previously listed sources.
+**Torznab:** add a trusted Jackett or Prowlarr Torznab feed under **Provider / mode settings → Torznab (Jackett / Prowlarr)**. Enter the feed URL without query parameters and put the API key in the separate field. A full `/api` URL or the feed base works. Use HTTPS for internet hosts. HTTP is available for localhost or a private IP on your network. Enable Torznab and use Debrid or Combined mode with authorised AllDebrid.
+
+Torznab searches alongside Torrentio and returns magnet or info-hash listings. Feeds that only expose torrent-file downloads are skipped. Link sends the selected info hash to AllDebrid for resolution. API keys and private tracker URLs stay out of playback requests and diagnostics.
+
+**Additional stream providers:** enter up to six Stremio-compatible provider base or manifest URLs. Addresses are masked because configured paths can contain secrets. Diagnostics show slot IDs only. Providers must offer `/stream/movie/{imdb}.json` and/or `/stream/series/{imdb}:{season}:{episode}.json`. Direct HTTP(S) video and `infoHash` torrent records are supported. Use direct providers that offer free streams for the free path. Upstream subscription entitlement cannot be inferred from a URL. Browser links, DRM, archive/NZB responses, YouTube IDs and proxy/header-dependent streams are skipped. Use the provider's documented base or configured path URL. Changing an address invalidates its previously listed sources.
 
 ## Reliability and limitations
 

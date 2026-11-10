@@ -1,3 +1,7 @@
+0.4.9
+- Search an optional Jackett or Prowlarr Torznab feed independently of Torrentio.
+- Accept hash-based listings and keep Torznab credentials out of playback and diagnostics.
+
 0.4.8
 - Fall back to Cloudflare IPv4 automatically when the normal Torrentio metadata connection fails.
 

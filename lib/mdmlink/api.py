@@ -7,12 +7,14 @@ from .errors import PlaybackError, Cancelled
 from .files import web_url
 from .models import item, magnet_hash
 from .providers import ArchiveProvider, StreamProvider
+from .torznab import TorznabProvider
 from .engine import CUSTOM_PROVIDER_SLOTS, search as run_search
 from .transport import FAILURE_REASONS, TORRENTIO_HOST
 
 MODES=('Free','Debrid','Combined')
 STREAM_IDS = tuple('stream_{}'.format(slot) for slot in range(1, CUSTOM_PROVIDER_SLOTS + 1))
-PROVIDER_IDS = ('archive', 'torrentio') + STREAM_IDS
+CONFIGURED_IDS = ('torznab',) + STREAM_IDS
+PROVIDER_IDS = ('archive', 'torrentio') + CONFIGURED_IDS
 
 def mode(addon):
     setting=addon.getSetting('source_mode') or 'Combined'
@@ -38,12 +40,16 @@ def configured(addon):
 
 def registry(addon):
     providers=[]; selected=mode(addon)
+    use_debrid = selected != 'Free' and debrid_ready(addon)
     if selected!='Debrid' and addon.getSetting('provider_archive')!='false': providers.append(ArchiveProvider())
-    if selected!='Free' and debrid_ready(addon) and addon.getSetting('provider_torrentio')!='false':
+    if use_debrid and addon.getSetting('provider_torrentio')!='false':
         proxy = addon.getSetting('provider_torrentio_proxy').strip()
         providers.append(StreamProvider('torrentio', 'Torrentio', f'https://{TORRENTIO_HOST}', True,
                                         metadata_proxy=proxy,
                                         metadata_ipv4=addon.getSetting('device_torrentio_ipv4') == 'true'))
+    torznab_url = addon.getSetting('provider_torznab_url').strip()
+    if use_debrid and torznab_url and addon.getSetting('provider_torznab_enabled') == 'true':
+        providers.append(TorznabProvider(torznab_url, addon.getSetting('provider_torznab_api_key').strip()))
     for slot, identifier in enumerate(STREAM_IDS, 1):
         key = 'provider_' + identifier
         base = addon.getSetting(key+'_url').strip()
@@ -82,9 +88,11 @@ def resolve(addon,source,progress,monitor,choose,policy_addon=None):
     identifier=extra.get('link_provider')
     provider=next((p for p in registry(addon) if p.id==identifier),None)
     if provider is None: raise PlaybackError('This Link provider is disabled or its mode changed. Search again.')
-    if identifier.startswith('stream_') and extra.get('provider_signature')!=provider.signature:
-        raise PlaybackError('This stream provider configuration changed. Search again.')
+    if identifier in CONFIGURED_IDS and extra.get('provider_signature')!=provider.signature:
+        raise PlaybackError('This provider configuration changed. Search again.')
     selected=mode(addon); access=extra.get('access')
+    if identifier == 'torznab' and (access != 'debrid' or not magnet_hash(source.get('url'))):
+        raise PlaybackError('Invalid Torznab source. Search again.')
     if access=='free':
         if selected=='Debrid' or source.get('debrid') or not web_url(source.get('url')): raise PlaybackError('This free source is unavailable in the current mode. Search again.')
         return source['url']
